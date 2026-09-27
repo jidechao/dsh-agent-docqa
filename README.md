@@ -112,7 +112,9 @@ docqa/
 ├─ run_web.py                    # Web 服务入口（.env 加载、依赖、凭据、权限模式、两层 patch、资产路径都在这里装配）
 ├─ requirements.txt
 ├─ .env.example                  # 配置模板：复制成 .env（.env 含密钥，不要提交）
-├─ README.zh.md
+├─ .gitignore                    # 排除 .venv / .docqa-web / .env / 缓存等运行期产物
+├─ README.md                     # 本文件
+├─ tests/                        # 纯离线回归测试（图片通道 30 项、权限装配 14 项；不调模型、不启 runtime）
 ├─ .venv/                        # 运行时环境（Python 3.11 + 依赖，约 785 MB）
 └─ .docqa-web/                   # 运行期资料库与运行时状态（见下）
 ```
