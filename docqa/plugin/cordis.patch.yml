@@ -1,0 +1,12 @@
+# docqa 的 dsh profile 覆写层（通过 SDK 的 --patch 叠加到 sdk profile 之上）。
+#
+# 只做一件事：把 docqa-stream-forward 插件插进插件树。
+# 该插件订阅 `agent/assistant-stream`，把 token 级增量转发给 docqa 宿主的
+# /api/agent-stream，宿主再转成 SSE 的 delta 事件。
+#
+# 注意：插件在 apply() 里先看 DOCQA_STREAM_HOOK，没设置就什么都不做；
+# 任何转发失败都被吞掉，不会影响 agent 主流程。
+
+- insert:
+    - id: docqa-stream-forward
+      name: './docqa-stream-forward.mjs'

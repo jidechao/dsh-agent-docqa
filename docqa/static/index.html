@@ -1,0 +1,2486 @@
+<!DOCTYPE html>
+<html lang="zh-CN" style="color-scheme: dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>文档问答 · docqa</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --bg-soft: #161a21;
+    --bg-card: #1b2029;
+    --bg-code: #10131a;
+    --line: #262d38;
+    --line-soft: #1f2530;
+    --fg: #e6e9ef;
+    --fg-dim: #9aa4b2;
+    --fg-faint: #6b7482;
+    --accent: #5b9dff;
+    --accent-soft: #1d2b45;
+    --ok: #46c98b;
+    --warn: #e2b04a;
+    --err: #f2707a;
+    --think: #b48ef0;
+    --radius: 12px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 15px/1.62 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    display: flex; overflow: hidden;
+  }
+  button, input, textarea { font: inherit; color: inherit; }
+
+  /* ---------------------------------------------------------------- sidebar */
+  aside {
+    width: 336px; flex: 0 0 336px; background: var(--bg-soft);
+    border-right: 1px solid var(--line); display: flex; flex-direction: column;
+  }
+  .brand { padding: 18px 20px 14px; border-bottom: 1px solid var(--line-soft); }
+  .brand h1 { margin: 0; font-size: 16px; letter-spacing: .2px; }
+  .brand p { margin: 4px 0 0; font-size: 12px; color: var(--fg-faint); }
+  .pane { padding: 16px 20px; overflow-y: auto; flex: 1; }
+  .pane h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .9px;
+    color: var(--fg-faint); margin: 0 0 10px; font-weight: 600;
+  }
+  .pane section + section { margin-top: 22px; }
+
+  /* 拖放整窗高亮：拖到窗口任意位置都能上传，不必对准某个框 */
+  #veil {
+    position: fixed; inset: 0; z-index: 90; pointer-events: none;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(8, 12, 20, .62); box-shadow: inset 0 0 0 2px var(--accent);
+    color: var(--fg); font-size: 15px; letter-spacing: .4px;
+  }
+  #veil[hidden] { display: none; }
+
+  .doc {
+    display: flex; gap: 10px; padding: 9px 10px; border-radius: 9px;
+    background: var(--bg-card); margin-bottom: 7px; font-size: 12.5px; align-items: flex-start;
+  }
+  .doc-ico { font-size: 15px; line-height: 1.3; }
+  .doc-body { min-width: 0; flex: 1; }
+  .doc-name { color: var(--fg); word-break: break-all; }
+  .doc-meta { color: var(--fg-faint); font-size: 11.5px; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    background: var(--bg-soft); border: 1px solid var(--line);
+    padding: 0 6px; border-radius: 20px; font-size: 10.5px; color: var(--fg-dim);
+  }
+  .chip.engine { border-color: #33507d; color: #8fb8ff; }
+  .chip.warn { border-color: #6b5320; color: var(--warn); }
+
+  .btnrow { display: flex; gap: 8px; }
+  button.ghost {
+    flex: 1; background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 9px; padding: 8px 10px; cursor: pointer; font-size: 12.5px; color: var(--fg-dim);
+  }
+  button.ghost:hover { border-color: var(--accent); color: var(--fg); }
+  button.ghost:disabled { opacity: .45; cursor: not-allowed; }
+  .meta { font-size: 11.5px; color: var(--fg-faint); }
+  .meta code { color: var(--fg-dim); }
+  .warn-line { color: var(--warn); font-size: 11.5px; margin-top: 6px; }
+
+  /* ------------------------------------------------------------------- main */
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #thread { flex: 1; overflow-y: auto; padding: 28px 0 12px; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+
+  .empty { text-align: center; color: var(--fg-faint); padding: 80px 20px; font-size: 13.5px; }
+  .empty b { display: block; font-size: 17px; color: var(--fg-dim); margin-bottom: 8px; font-weight: 600; }
+
+  .msg { margin-bottom: 22px; }
+  .msg.user { display: flex; justify-content: flex-end; }
+  .msg.user .bubble {
+    background: var(--accent-soft); border: 1px solid #2b4066;
+    padding: 10px 14px; border-radius: 14px 14px 4px 14px; max-width: 76%; white-space: pre-wrap;
+  }
+  .msg-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .msg.user .bubble > .msg-files:first-child { margin-top: 0; }
+  .msg-file {
+    display: inline-flex; align-items: center; gap: 5px; max-width: 230px;
+    background: var(--bg-card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 3px 8px; font-size: 11.5px; color: var(--fg-dim); white-space: nowrap;
+  }
+  .msg-file .nm { overflow: hidden; text-overflow: ellipsis; }
+  .msg-file .sz { color: var(--fg-faint); }
+
+  /* 入库结果：作为对话流里的一条系统提示，而不是侧栏里的裸日志 */
+  .notice {
+    border: 1px solid var(--line); background: var(--bg-soft); border-radius: 10px;
+    padding: 10px 13px; margin: 0 0 20px; font-size: 12.5px; color: var(--fg-dim);
+  }
+  .notice b { display: block; color: var(--fg); margin-bottom: 5px; }
+  .notice .line { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 4px; }
+  .notice .ok { color: #7ee0a6; }
+  .notice .bad { color: #ffb3b8; }
+
+  /* 状态行：贴在事件流上方，取代原来把整轮包起来的大卡片 */
+  .run-status {
+    display: flex; align-items: center; gap: 10px; margin: 2px 0 12px;
+    font-size: 12px; color: var(--fg-dim);
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 9px; border-radius: 20px; font-size: 11.5px;
+    background: var(--bg-card); border: 1px solid var(--line); color: var(--fg-dim);
+  }
+  .badge.run { border-color: #33507d; color: #9cc2ff; }
+  .badge.ok { border-color: #2c6047; color: var(--ok); }
+  .badge.bad { border-color: #6b2f36; color: var(--err); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .badge.run .dot { animation: pulse 1.15s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: .28; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.15); } }
+  .spacer { flex: 1; }
+  .elapsed { font-family: var(--mono); font-size: 11px; color: var(--fg-faint); }
+
+  /* ------------------------------------------------------------------ 事件行
+     思考 / 工具调用 / 工具结果都是对话流里的一条独立行，到了就追加，
+     和 DSH 的对话 UI 一样：一行一个事件，可点开看细节。 */
+  .ev {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--bg-card);
+    margin: 8px 0; overflow: hidden; font-size: 13px;
+  }
+  .ev-head {
+    display: flex; align-items: center; gap: 9px; padding: 8px 12px;
+    cursor: pointer; list-style: none; user-select: none;
+  }
+  .ev-head::-webkit-details-marker { display: none; }
+  .ev-ico { flex: 0 0 auto; font-size: 13.5px; line-height: 1; }
+  .ev-label { flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--accent); }
+  .ev-detail {
+    flex: 1; min-width: 0; font-family: var(--mono); font-size: 11.5px; color: var(--fg-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ev-state { flex: 0 0 auto; font-size: 11px; color: var(--fg-faint); }
+  .ev.done .ev-state { color: var(--ok); }
+  .ev.fail { border-color: #5c2b31; }
+  .ev.fail .ev-state { color: var(--err); }
+  .ev-body { border-top: 1px solid var(--line-soft); padding: 10px 12px; }
+  .ev-body h4 { margin: 0 0 6px; font-size: 11px; color: var(--fg-faint); font-weight: 600; letter-spacing: .5px; }
+
+  /* 思考行：同为事件行，摘要里给一行预览，点开看全文 */
+  .ev.think { border-left: 2px solid var(--think); background: #191d2b; }
+  .ev.think .ev-label { color: var(--think); font-weight: 500; }
+  .ev.think .ev-detail { font-family: inherit; color: #a9a4c7; }
+  .ev-body .think-full { white-space: pre-wrap; color: #c6c2de; font-size: 13px; }
+
+  /* ---- 工具参数：按工具类型分化渲染 ---- */
+  .tool-ico { font-size: 14px; line-height: 1; }
+  .arg-stack { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .arg-row { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; }
+  .arg-key {
+    flex: 0 0 auto; color: var(--fg-faint); font-size: 11px; letter-spacing: .3px;
+    min-width: 42px;
+  }
+  .arg-val {
+    font-family: var(--mono); font-size: 12px; color: #cdd6e4;
+    word-break: break-all; background: var(--bg-code); border: 1px solid var(--line-soft);
+    border-radius: 6px; padding: 2px 7px;
+  }
+  .arg-val.path { color: #8fd6ff; }
+  .arg-val.pattern { color: #ffd479; }
+  .arg-desc { color: var(--fg-dim); font-size: 12px; margin-bottom: 2px; }
+  pre.code.term { color: #b6e3a8; }
+  .arg-diff { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  .diff-line {
+    font-family: var(--mono); font-size: 12px; border-radius: 6px; padding: 6px 9px;
+    white-space: pre-wrap; word-break: break-word; border: 1px solid var(--line-soft);
+  }
+  .diff-line.old { background: #21161a; color: #ffb3b8; border-color: #4b2830; }
+  .diff-line.new { background: #14201a; color: #a9e8c4; border-color: #274634; }
+  .todo-row { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; padding: 3px 0; }
+  .todo-mark { flex: 0 0 auto; width: 14px; }
+  .todo-row.done .todo-text { color: var(--fg-faint); text-decoration: line-through; }
+  .todo-row.active .todo-text { color: var(--fg); }
+  details.raw { margin-top: 4px; }
+  details.raw > summary {
+    cursor: pointer; color: var(--fg-faint); font-size: 11px; list-style: none; user-select: none;
+  }
+  details.raw > summary::-webkit-details-marker { display: none; }
+  details.raw > summary::before { content: "▸ "; }
+  details.raw[open] > summary::before { content: "▾ "; }
+
+  /* 工具行：成功的结果默认收起（点开看参数与返回），失败自动展开 */
+  .ev.fail .ev-body { border-top-color: #5c2b31; }
+  pre.code {
+    margin: 0 0 10px; background: var(--bg-code); border: 1px solid var(--line-soft);
+    border-radius: 8px; padding: 10px 12px; overflow-x: auto;
+    font-family: var(--mono); font-size: 12px; line-height: 1.55; color: #cdd6e4; white-space: pre-wrap; word-break: break-word;
+  }
+  pre.code:last-child { margin-bottom: 0; }
+
+  .md { font-size: 14.5px; }
+  /* 正在流式接收的正文：末尾一个光标，提交后整段被权威文本替换 */
+  .md.streaming::after {
+    content: "▌"; color: var(--accent); margin-left: 1px;
+    animation: caret 1s step-end infinite;
+  }
+  @keyframes caret { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .md.streaming::after { animation: none; } }
+  .md > *:first-child { margin-top: 0; }
+  .md > *:last-child { margin-bottom: 0; }
+  .md h1, .md h2, .md h3, .md h4 { margin: 18px 0 8px; line-height: 1.35; }
+  .md h1 { font-size: 20px; } .md h2 { font-size: 17.5px; } .md h3 { font-size: 15.5px; } .md h4 { font-size: 14.5px; }
+  .md p { margin: 9px 0; }
+  .md ul, .md ol { margin: 9px 0; padding-left: 22px; }
+  .md li { margin: 4px 0; }
+  .md code {
+    background: var(--bg-code); border: 1px solid var(--line-soft); border-radius: 5px;
+    padding: 1px 5px; font-family: var(--mono); font-size: 12.5px;
+  }
+  .md pre.code code { border: 0; background: none; padding: 0; font-size: 12px; }
+  .md blockquote {
+    margin: 10px 0; padding: 2px 14px; border-left: 2px solid var(--line); color: var(--fg-dim);
+  }
+  .md table { border-collapse: collapse; margin: 12px 0; font-size: 13px; display: block; overflow-x: auto; }
+  .md th, .md td { border: 1px solid var(--line); padding: 6px 11px; text-align: left; }
+  .md th { background: var(--bg-card); font-weight: 600; }
+  .md hr { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
+  .md a { color: var(--accent); }
+
+  /* ------------------------------------------------------------------ GenUI */
+  .g-root {
+    background: var(--bg-card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; margin: 14px 0; font-size: 13.5px;
+  }
+  .g-banner { font-weight: 600; color: var(--fg); margin-bottom: 10px; font-size: 14px; }
+  .g-title { font-size: 13px; color: var(--fg); font-weight: 600; margin-bottom: 8px; }
+  .g-col { display: flex; flex-direction: column; gap: 12px; }
+  .g-row { display: flex; align-items: flex-start; gap: 12px; }
+  .g-row.wrap { flex-wrap: wrap; }
+  .g-row-spacer { flex: 1; }
+  .g-grid { display: grid; gap: 12px; }
+  .g-card { border: 1px solid var(--line-soft); border-radius: 10px; padding: 12px; background: var(--bg-soft); }
+  .g-card-title { font-size: 12.5px; font-weight: 600; color: var(--fg); margin-bottom: 8px; }
+  .g-spacer { height: 8px; }
+  .g-divider { border: 0; border-top: 1px solid var(--line-soft); margin: 12px 0; }
+  .g-empty { color: var(--fg-faint); font-size: 12.5px; }
+  .g-error { color: #ffb3b8; font-size: 12.5px; }
+
+  .g-text-h1 { font-size: 19px; font-weight: 650; margin: 4px 0; }
+  .g-text-h2 { font-size: 16.5px; font-weight: 650; margin: 4px 0; }
+  .g-text-h3 { font-size: 14.5px; font-weight: 600; margin: 3px 0; }
+  .g-text-body { font-size: 13.5px; margin: 2px 0; }
+  .g-text-muted { font-size: 12.5px; color: var(--fg-dim); margin: 2px 0; }
+  .g-text-caption { font-size: 11.5px; color: var(--fg-faint); margin: 2px 0; }
+
+  .g-badge {
+    display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 20px;
+    font-size: 11.5px; border: 1px solid var(--line); background: var(--bg-soft); color: var(--fg-dim);
+  }
+  .g-tone-success { border-color: #2c6047; color: #7ee0a6; }
+  .g-tone-warn, .g-tone-warning { border-color: #6b5320; color: var(--warn); }
+  .g-tone-danger, .g-tone-error { border-color: #6b2f36; color: #ffb3b8; }
+  .g-tone-accent, .g-tone-info { border-color: #33507d; color: #8fb8ff; }
+  .g-avatar {
+    display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+    border-radius: 50%; background: var(--accent-soft); border: 1px solid #2b4066; font-size: 11.5px; color: var(--fg);
+  }
+  .g-link { color: var(--accent); }
+  .g-link-plain { color: var(--fg-dim); }
+
+  .g-progress { display: flex; flex-direction: column; gap: 5px; }
+  .g-progress-label { font-size: 12.5px; color: var(--fg-dim); }
+  .g-progress-track { height: 8px; background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 999px; overflow: hidden; }
+  .g-progress-fill { height: 100%; background: var(--accent); border-radius: 999px; }
+  .g-progress-value { font-family: var(--mono); font-size: 11.5px; color: var(--fg-faint); }
+
+  .g-stat { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--bg-soft); }
+  .g-stat-label { font-size: 11.5px; color: var(--fg-faint); }
+  .g-stat-value { font-size: 19px; font-weight: 650; color: var(--fg); }
+  .g-stat-delta { font-size: 11.5px; color: var(--fg-dim); }
+  .g-stat-delta.up { color: #7ee0a6; }
+  .g-stat-delta.down { color: #ffb3b8; }
+
+  .g-code {
+    margin: 0; background: var(--bg-code); border: 1px solid var(--line-soft); border-radius: 8px;
+    padding: 10px 12px; overflow-x: auto; font-family: var(--mono); font-size: 12px;
+    line-height: 1.55; color: #cdd6e4; white-space: pre-wrap; word-break: break-word;
+  }
+  .g-json > summary { cursor: pointer; color: var(--fg-faint); font-size: 11.5px; }
+  .g-diff { display: flex; flex-direction: column; gap: 6px; }
+  .g-diff-path { font-family: var(--mono); font-size: 11.5px; color: var(--fg-dim); }
+  .g-diff-old, .g-diff-new { margin: 0; padding: 8px 10px; border-radius: 6px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
+  .g-diff-old { background: #21161a; color: #ffb3b8; border: 1px solid #4b2830; }
+  .g-diff-new { background: #14201a; color: #a9e8c4; border: 1px solid #274634; }
+  .g-kv { display: flex; flex-direction: column; gap: 6px; }
+  .g-kv-row { display: flex; gap: 10px; font-size: 12.5px; }
+  .g-kv-key { color: var(--fg-faint); min-width: 84px; }
+  .g-kv-value { color: var(--fg); }
+
+  .g-callout { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 10px 12px; background: var(--bg-soft); }
+  .g-callout.g-tone-success { border-left-color: #2c6047; }
+  .g-callout.g-tone-warning { border-left-color: #6b5320; }
+  .g-callout.g-tone-error { border-left-color: #6b2f36; }
+  .g-callout-title { font-weight: 600; color: var(--fg); margin-bottom: 4px; font-size: 13px; }
+  .g-callout-body { color: var(--fg-dim); font-size: 12.5px; white-space: pre-wrap; }
+
+  .g-list { margin: 0; padding-left: 20px; }
+  .g-list-item { margin: 4px 0; font-size: 13px; }
+  .g-list-title { color: var(--fg); font-weight: 550; }
+  .g-list-desc { color: var(--fg-dim); font-size: 12.5px; }
+
+  .g-steps { display: flex; flex-direction: column; gap: 8px; }
+  .g-step { display: flex; gap: 10px; align-items: flex-start; }
+  .g-step-mark {
+    flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line);
+    display: inline-flex; align-items: center; justify-content: center; font-size: 11px; color: var(--fg-dim);
+  }
+  .g-step.done .g-step-mark { border-color: #2c6047; color: #7ee0a6; }
+  .g-step.active .g-step-mark { border-color: var(--accent); color: var(--accent); }
+  .g-step-title { font-size: 13px; color: var(--fg); }
+  .g-step-desc { font-size: 12px; color: var(--fg-faint); }
+
+  .g-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .g-table th, .g-table td { border: 1px solid var(--line-soft); padding: 6px 10px; text-align: left; }
+  .g-table th { background: var(--bg-soft); cursor: pointer; user-select: none; }
+  .g-table th.asc::after { content: " ▲"; color: var(--accent); }
+  .g-table th.desc::after { content: " ▼"; color: var(--accent); }
+
+  .g-bars { display: flex; gap: 10px; align-items: flex-end; padding: 6px 2px; }
+  .g-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+  .g-bar-track { width: 100%; height: 90px; display: flex; align-items: flex-end; background: var(--bg-soft); border-radius: 6px; }
+  .g-bar-fill { width: 100%; border-radius: 6px 6px 0 0; min-height: 2px; }
+  .g-bar-value { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); }
+  .g-bar-label { font-size: 11px; color: var(--fg-faint); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .g-svg { width: 100%; display: block; }
+  .g-axis { stroke: var(--line); stroke-width: 1; }
+  .g-grid { stroke: var(--line-soft); stroke-width: 1; }
+  .g-tick { fill: var(--fg-faint); font-size: 10px; font-family: var(--mono); }
+  .g-line-wrap { display: flex; flex-direction: column; gap: 6px; }
+  .g-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11.5px; color: var(--fg-dim); }
+  .g-legend-col { flex-direction: column; }
+  .g-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+  .g-legend-swatch { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+  .g-donut-wrap { display: flex; gap: 16px; align-items: center; }
+  .g-donut { width: 120px; flex: 0 0 120px; }
+  .g-donut-track { stroke: var(--bg-soft); }
+  .g-donut-total { fill: var(--fg); font-size: 13px; font-family: var(--mono); }
+  .g-donut-label { fill: var(--fg-faint); font-size: 9px; }
+  .g-plot-svg { cursor: grab; touch-action: none; }
+  .g-sliders { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .g-slider-head { font-size: 11.5px; color: var(--fg-faint); }
+  .g-slider-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .g-slider-name { color: var(--fg-dim); min-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .g-slider-value { font-family: var(--mono); font-size: 11.5px; color: var(--fg); min-width: 34px; text-align: right; }
+  .g-slider { flex: 1; accent-color: var(--accent); }
+
+  .g-tabs { display: flex; flex-direction: column; gap: 10px; }
+  .g-tab-bar { display: flex; flex-wrap: wrap; gap: 6px; }
+  .g-tab {
+    background: var(--bg-soft); border: 1px solid var(--line); color: var(--fg-dim);
+    border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer; font-family: inherit;
+  }
+  .g-tab.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .g-tab-pane { display: flex; flex-direction: column; gap: 10px; }
+  .g-accordion { display: flex; flex-direction: column; gap: 6px; }
+  .g-acc-item { border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg-soft); }
+  .g-acc-item > summary { cursor: pointer; padding: 8px 11px; font-size: 12.5px; color: var(--fg); }
+  .g-acc-body { padding: 0 11px 10px; display: flex; flex-direction: column; gap: 8px; }
+
+  .g-timeline { display: flex; flex-direction: column; gap: 10px; }
+  .g-tl-item { display: flex; gap: 10px; }
+  .g-tl-time { flex: 0 0 92px; font-family: var(--mono); font-size: 11.5px; color: var(--fg-faint); }
+  .g-tl-title { font-size: 13px; color: var(--fg); }
+  .g-tl-desc { font-size: 12px; color: var(--fg-dim); }
+  .g-tree { list-style: none; margin: 0; padding-left: 14px; }
+  .g-tree-label { font-family: var(--mono); font-size: 12px; color: var(--fg-dim); padding: 1px 0; }
+  .g-tree-label.dir { color: var(--fg); }
+  .g-crumbs { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--fg-dim); }
+  .g-crumb-sep { color: var(--fg-faint); }
+
+  .g-btn {
+    background: var(--bg-card); border: 1px solid var(--line); color: var(--fg);
+    border-radius: 9px; padding: 6px 13px; font-size: 12.5px; cursor: pointer; font-family: inherit;
+  }
+  .g-btn:hover { border-color: var(--accent); }
+  .g-btn:disabled { opacity: .45; cursor: not-allowed; }
+  .g-btn.full { width: 100%; }
+  .g-btn.small { padding: 3px 9px; font-size: 11.5px; }
+  .g-btn.g-primary { background: var(--accent); border-color: var(--accent); color: #08101d; font-weight: 600; }
+  .g-btn.g-danger { background: #4b1f26; border-color: #6b2f36; color: #ffb3b8; }
+  .g-btn.g-success { background: #17301f; border-color: #2c6047; color: #7ee0a6; }
+  .g-btn.g-ghost { background: none; }
+  .g-field { display: flex; flex-direction: column; gap: 5px; }
+  .g-field-label { font-size: 11.5px; color: var(--fg-faint); }
+  .g-control {
+    background: var(--bg-soft); border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 10px; color: var(--fg); font-size: 12.5px; font-family: inherit; outline: none;
+  }
+  .g-control:focus { border-color: var(--accent); }
+  .g-toggle { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-dim); cursor: pointer; }
+  .g-switch-input { width: 34px; height: 18px; accent-color: var(--accent); }
+  .g-radio { display: flex; flex-direction: column; gap: 5px; }
+  .g-radio-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-dim); cursor: pointer; }
+  .g-submit { display: flex; flex-direction: column; gap: 8px; }
+  .g-submit-hint { font-size: 11.5px; color: var(--fg-faint); }
+  .g-grade { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+  .g-grade-score { font-size: 15px; font-weight: 650; color: var(--fg); }
+  .g-grade-item { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+  .g-grade-item.ok .g-grade-tag { color: #7ee0a6; }
+  .g-grade-item.no .g-grade-tag { color: #ffb3b8; }
+  .g-grade-q { color: var(--fg-dim); }
+  .g-grade-ans { color: var(--fg); }
+  .g-grade-right { color: #7ee0a6; }
+  .g-grade-exp { color: var(--fg-faint); font-size: 12px; }
+  .g-grade-note { color: var(--fg-faint); font-size: 11.5px; }
+  .g-quiz { display: flex; flex-direction: column; gap: 7px; }
+  .g-quiz-q { font-size: 13.5px; color: var(--fg); font-weight: 550; }
+  .g-quiz-opt {
+    text-align: left; background: var(--bg-soft); border: 1px solid var(--line); color: var(--fg-dim);
+    border-radius: 9px; padding: 8px 11px; font-size: 12.5px; cursor: pointer; font-family: inherit;
+  }
+  .g-quiz-opt:hover { border-color: var(--accent); }
+  .g-quiz-opt.ok { border-color: #2c6047; color: #7ee0a6; }
+  .g-quiz-opt.no { border-color: #6b2f36; color: #ffb3b8; }
+  .g-quiz-feedback { font-size: 12.5px; color: var(--fg-dim); display: flex; gap: 8px; align-items: center; }
+  .g-quiz-feedback.ok { color: #7ee0a6; }
+  .g-quiz-feedback.no { color: #ffb3b8; }
+  .g-mermaid, .g-scene { background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 10px; padding: 10px; overflow-x: auto; }
+  .g-scene { padding: 0; overflow: hidden; }
+  pre.genui-broken { border-color: #6b2f36; }
+  .answer { border-top: 1px dashed var(--line); margin-top: 16px; padding-top: 4px; }
+  .answer-tag { font-size: 11px; color: var(--fg-faint); letter-spacing: .8px; text-transform: uppercase; margin: 12px 0 2px; }
+  .err-box {
+    border: 1px solid #5c2b31; background: #1f1518; color: #ffb3b8;
+    border-radius: 10px; padding: 11px 13px; margin: 12px 0; font-size: 13px; white-space: pre-wrap;
+  }
+
+  /* ------------------------------------------------------------------ input */
+  footer { border-top: 1px solid var(--line); background: var(--bg-soft); padding: 14px 0 18px; }
+  .composer { display: flex; gap: 10px; align-items: flex-end; }
+  /* 暂存附件栏：选中的文件先挂在这里，发送时才随问题进对话 */
+  .rail { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 9px; }
+  .rail[hidden] { display: none; }
+  .rail-chip {
+    display: inline-flex; align-items: center; gap: 7px; max-width: 268px;
+    background: var(--bg-card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 5px 7px 5px 10px; font-size: 12px; color: var(--fg-dim);
+  }
+  .rail-chip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rail-chip .sz { color: var(--fg-faint); font-size: 11px; }
+  .rail-chip button {
+    background: none; border: 0; color: var(--fg-faint); cursor: pointer;
+    font-size: 13px; line-height: 1; padding: 0 3px;
+  }
+  .rail-chip button:hover { color: #ff8f97; }
+  .add-wrap { position: relative; }
+  #add {
+    width: 41px; height: 41px; border-radius: 11px; border: 1px solid var(--line);
+    background: var(--bg-card); color: var(--fg-dim); font-size: 20px; line-height: 1;
+    cursor: pointer; transition: .16s;
+  }
+  #add:hover, #add[aria-expanded="true"] {
+    border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
+  }
+  .add-menu {
+    position: absolute; bottom: calc(100% + 8px); left: 0; min-width: 250px; z-index: 40;
+    background: var(--bg-card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 6px; box-shadow: 0 18px 40px rgba(0, 0, 0, .45);
+  }
+  .add-menu[hidden] { display: none; }
+  .menu-head {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .9px;
+    color: var(--fg-faint); padding: 7px 9px 4px;
+  }
+  .menu-item {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: none; border: 0; border-radius: 9px; padding: 8px 9px; color: var(--fg);
+    font: inherit;
+  }
+  .menu-item:hover { background: var(--bg-soft); }
+  .menu-label { display: block; font-size: 13px; }
+  .menu-en { color: var(--fg-faint); font-size: 11px; margin-left: 5px; }
+  .menu-desc { display: block; color: var(--fg-faint); font-size: 11.5px; margin-top: 2px; }
+  textarea {
+    flex: 1; resize: none; background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px 14px; outline: none; max-height: 200px; line-height: 1.55;
+  }
+  textarea:focus { border-color: var(--accent); }
+  textarea::placeholder { color: var(--fg-faint); }
+  #send {
+    background: var(--accent); border: 0; color: #08101d; font-weight: 650;
+    border-radius: 11px; padding: 12px 20px; cursor: pointer;
+  }
+  #send:disabled { opacity: .4; cursor: not-allowed; }
+  .hint { font-size: 11px; color: var(--fg-faint); margin-top: 7px; display: flex; gap: 12px; }
+  .hint kbd {
+    font-family: var(--mono); background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 4px; padding: 0 4px;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #2a323f; border-radius: 6px; border: 3px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover { background: #39434f; }
+</style>
+</head>
+<body>
+
+<aside>
+  <div class="brand">
+    <h1>📚 文档问答</h1>
+    <p>上传文档 → 提问 → 实时查看思考与工具调用</p>
+  </div>
+  <div class="pane">
+    <section>
+      <h2>资料库 <span id="doc-count" class="meta"></span></h2>
+      <div id="docs"></div>
+    </section>
+
+    <section>
+      <h2>会话</h2>
+      <div class="meta">session <code id="session-id">—</code></div>
+      <div class="meta">model <code id="model-id">—</code></div>
+      <div class="meta" id="budget-line"></div>
+      <div class="btnrow" style="margin-top:10px">
+        <button class="ghost" id="new-session">新对话</button>
+        <button class="ghost" id="clear-docs">清空文档</button>
+      </div>
+      <div id="env-warn"></div>
+    </section>
+  </div>
+</aside>
+
+<main>
+  <div id="thread"><div class="wrap" id="thread-wrap">
+    <div class="empty" id="empty">
+      <b>还没有对话</b>
+      点输入框左下角的 ＋ 选择文件（也可以把文件直接拖到窗口任意位置），文件会先挂在输入框上方；输入问题后按 <kbd>Enter</kbd> 或点「发送」，文件和问题一起进入对话。
+    </div>
+  </div></div>
+  <footer>
+    <div class="wrap">
+      <div id="rail" class="rail" hidden></div>
+      <div class="composer">
+        <div class="add-wrap">
+          <button id="add" type="button" title="添加" aria-haspopup="menu" aria-expanded="false">＋</button>
+          <div id="add-menu" class="add-menu" role="menu" hidden>
+            <div class="menu-head">添加</div>
+            <button class="menu-item" type="button" id="menu-file" role="menuitem">
+              <span class="menu-label">文件 <span class="menu-en">file</span></span>
+              <span class="menu-desc">选择本地文件上传（可多选）</span>
+            </button>
+            <div class="menu-head">指令</div>
+            <button class="menu-item" type="button" id="menu-new-session" role="menuitem">
+              <span class="menu-label">新对话 <span class="menu-en">new</span></span>
+              <span class="menu-desc">开始一段新对话，文档保留</span>
+            </button>
+          </div>
+        </div>
+        <textarea id="q" rows="1" placeholder="针对文档提问，例如：生产环境和预发环境的月成本相差多少？"></textarea>
+        <button id="send">发送</button>
+      </div>
+      <input id="file" type="file" multiple hidden />
+      <div class="hint">
+        <span><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行</span>
+        <span title="工具调用与结果是真实时到达的；思考与回答受 SDK 限制，在所在步提交时整段到达">事件逐条实时追加：工具调用/结果实时，思考与回答按步提交</span>
+        <span id="conn"></span>
+      </div>
+    </div>
+  </footer>
+</main>
+
+<div id="veil" hidden>松手即上传到资料库</div>
+
+<script>
+"use strict";
+
+/* ==========================================================================
+   状态
+   ========================================================================== */
+const S = {
+  sessionId: null,
+  documents: [],
+  staged: [],
+  busy: false,
+  lastSeq: 0,
+  es: null,
+  timer: null,
+  turnStart: 0,
+  answerText: "",
+  toolCards: new Map(),
+  scrollLock: true,
+};
+
+const $ = (id) => document.getElementById(id);
+const wrap = $("thread-wrap");
+
+/* ==========================================================================
+   Markdown 渲染（自包含，无外部依赖）
+   ========================================================================== */
+const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ESC[c]);
+
+function renderInline(s) {
+  return s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+
+const splitRow = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+const isFence = (line) => /^\s*```/.test(line);
+const isTableSep = (line) => /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(line) && line.includes("-");
+
+function renderMarkdown(src, opts) {
+  const streaming = Boolean(opts && opts.streaming);
+  const lines = String(src ?? "").replace(/\r\n/g, "\n").split("\n");
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (isFence(line)) {
+      const lang = line.trim().slice(3).trim();
+      const buf = [];
+      i++;
+      while (i < lines.length && !isFence(lines[i])) buf.push(lines[i++]);
+      i++;
+      // dsh-ui 围栏先按代码块落地，插入 DOM 后再由 hydrateGenui 换成组件；
+      // 流式期间 json 还是半截，必须等提交（与插件的 [data-streaming] 判断一致）。
+      const cls = (lang === "dsh-ui" && !streaming) ? ' class="code genui-fence"' : ' class="code"';
+      out.push("<pre" + cls + "><code>" + escapeHtml(buf.join("\n")) + "</code></pre>");
+      continue;
+    }
+    if (/^\s*$/.test(line)) { i++; continue; }
+
+    let m = line.match(/^(#{1,6})\s+(.*)$/);
+    if (m) { const lv = m[1].length; out.push(`<h${lv}>${renderInline(escapeHtml(m[2]))}</h${lv}>`); i++; continue; }
+    if (/^\s*([-*_])\s*\1\s*\1[\s\S]*$/.test(line) && /^\s*[-*_]{3,}\s*$/.test(line)) { out.push("<hr />"); i++; continue; }
+
+    if (line.includes("|") && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      const head = splitRow(line);
+      i += 2;
+      const body = [];
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) body.push(splitRow(lines[i++]));
+      out.push(
+        "<table><thead><tr>" + head.map((c) => `<th>${renderInline(escapeHtml(c))}</th>`).join("") +
+        "</tr></thead><tbody>" +
+        body.map((r) => "<tr>" + r.map((c) => `<td>${renderInline(escapeHtml(c))}</td>`).join("") + "</tr>").join("") +
+        "</tbody></table>"
+      );
+      continue;
+    }
+    if (/^\s*>\s?/.test(line)) {
+      const buf = [];
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ""));
+      out.push("<blockquote>" + renderMarkdown(buf.join("\n"), opts) + "</blockquote>");
+      continue;
+    }
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const buf = [];
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) buf.push(lines[i++].replace(/^\s*[-*+]\s+/, ""));
+      out.push("<ul>" + buf.map((x) => `<li>${renderInline(escapeHtml(x))}</li>`).join("") + "</ul>");
+      continue;
+    }
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const buf = [];
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) buf.push(lines[i++].replace(/^\s*\d+[.)]\s+/, ""));
+      out.push("<ol>" + buf.map((x) => `<li>${renderInline(escapeHtml(x))}</li>`).join("") + "</ol>");
+      continue;
+    }
+
+    const buf = [];
+    while (
+      i < lines.length && !/^\s*$/.test(lines[i]) && !isFence(lines[i]) &&
+      !/^(#{1,6}\s|\s*>|\s*[-*+]\s|\s*\d+[.)]\s)/.test(lines[i])
+    ) buf.push(lines[i++]);
+    out.push("<p>" + renderInline(escapeHtml(buf.join("\n"))).replace(/\n/g, "<br />") + "</p>");
+  }
+  return out.join("");
+}
+
+/* ==========================================================================
+   工具函数
+   ========================================================================== */
+function el(tag, cls, html) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (html !== undefined) node.innerHTML = html;
+  return node;
+}
+const fmtBytes = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : n > 1024 ? (n / 1024).toFixed(0) + " KB" : n + " B");
+const fmtMs = (ms) => (ms < 1000 ? ms + " ms" : (ms / 1000).toFixed(1) + " s");
+const clipText = (s, n) => (s.length <= n ? s : s.slice(0, n - 1) + "…");
+
+function autoScroll() {
+  const t = $("thread");
+  if (t.scrollHeight - t.scrollTop - t.clientHeight < 160) t.scrollTop = t.scrollHeight;
+}
+
+function prettyJson(raw) {
+  try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw || "(无参数)"; }
+}
+
+/* ==========================================================================
+   侧栏
+   ========================================================================== */
+async function loadState() {
+  const res = await fetch("/api/state");
+  const data = await res.json();
+  S.sessionId = data.session_id;
+  S.documents = data.documents;
+  $("session-id").textContent = data.session_id;
+  $("model-id").textContent = data.model;
+  $("budget-line").textContent = `内联预算 ${data.inline_budget.toLocaleString()} 字符 · 当前 ${data.total_chars.toLocaleString()}`;
+  $("doc-count").textContent = data.documents.length ? `${data.documents.length} 个` : "";
+
+  const box = $("docs");
+  box.innerHTML = "";
+  if (!data.documents.length) {
+    box.appendChild(el("div", "meta", "（空）上传后这里会列出转换结果"));
+  }
+  for (const d of data.documents) {
+    const row = el("div", "doc");
+    row.appendChild(el("div", "doc-ico", d.markdown ? "📄" : "⚠️"));
+    const body = el("div", "doc-body");
+    body.appendChild(el("div", "doc-name", escapeHtml(d.name)));
+    const meta = el("div", "doc-meta");
+    meta.appendChild(el("span", null, fmtBytes(d.bytes)));
+    if (d.chars) meta.appendChild(el("span", null, d.chars.toLocaleString() + " 字符"));
+    if (d.pages) meta.appendChild(el("span", null, d.pages + " 页"));
+    if (d.engine) meta.appendChild(el("span", "chip engine", escapeHtml(d.engine)));
+    if (d.note) meta.appendChild(el("span", "chip warn", escapeHtml(d.note)));
+    body.appendChild(meta);
+    row.appendChild(body);
+    box.appendChild(row);
+  }
+  updateSendState();
+}
+
+async function loadEngines() {
+  const res = await fetch("/api/engines");
+  const data = await res.json();
+  const warn = $("env-warn");
+  warn.innerHTML = "";
+  if (!data.libreoffice) warn.appendChild(el("div", "warn-line", "⚠️ 未检测到 LibreOffice：.doc/.ppt/.xls/.odt 无法转换"));
+  if (!data.tesseract) warn.appendChild(el("div", "warn-line", "ℹ️ 未检测到 tesseract：扫描版 PDF 只标记不 OCR"));
+}
+
+/* 上传不再由选择动作直接触发：文件先 stage 到输入框，发送时统一入库。 */
+
+/* ==========================================================================
+   事件流渲染约定
+   --------------------------------------------------------------------------
+   SDK 没有 token 级流，事件按**提交粒度**到达：tool_call / tool_result 是真
+   实时的，thinking 与 text 在所在步提交时整段到达。所以前端不做任何缓冲、
+   不做逐字回放——收到一条就往对话流里追加一条事件行，这就是这条传输通道
+   上能做到的"最实时"。
+   ========================================================================== */
+
+/* ==========================================================================
+   工具参数：按工具类型分化渲染
+   ========================================================================== */
+const TOOL_ICONS = {
+  read: "📄", write: "📝", edit: "✏️", read_document: "📄",
+  grep: "🔍", glob: "🗂️", pwsh: "⌨️", bash: "⌨️",
+  web_search: "🌐", web_fetch: "🌐", todo_write: "✅",
+  subagent: "🤖", subagent_fork: "🤖", list_agents: "🤖",
+  skill: "📚", workflow: "🔀", ralph: "🔁", send_message: "✉️",
+};
+
+/** 事件行左标签用动词，读起来像 DSH 的「读取 · 路径」。 */
+const TOOL_VERBS = {
+  read: "读取", read_document: "读取", write: "写入", edit: "编辑",
+  grep: "搜索", glob: "匹配", pwsh: "执行", bash: "执行",
+  web_search: "联网搜索", web_fetch: "抓取网页", todo_write: "更新任务",
+  subagent: "子代理", subagent_fork: "子代理", workflow: "工作流",
+  send_message: "发消息", list_agents: "列出代理", skill: "加载技能", ralph: "循环",
+};
+
+/** 事件行右侧摘要：优先取该工具最主要的一个参数。 */
+const PRIMARY_ARG = {
+  read: ["file_path", "path"], read_document: ["file_path", "path"],
+  write: ["file_path", "path"], edit: ["file_path", "path"],
+  grep: ["pattern"], glob: ["pattern"],
+  pwsh: ["description", "command"], bash: ["description", "command"],
+  web_search: ["query"], web_fetch: ["url"],
+};
+
+function toolDetail(name, args, fallback) {
+  if (args && typeof args === "object" && !Array.isArray(args)) {
+    for (const key of PRIMARY_ARG[name] || []) {
+      if (args[key]) return String(args[key]);
+    }
+    const scalars = Object.entries(args).filter(([, v]) => v === null || typeof v !== "object");
+    if (scalars.length) {
+      return scalars.slice(0, 2).map(([k, v]) => `${k}=${v}`).join(" · ");
+    }
+  }
+  return fallback || "";
+}
+
+function safeParse(raw) {
+  if (raw && typeof raw === "object") return raw;
+  try { return JSON.parse(String(raw)); } catch { return null; }
+}
+
+function chipRow(label, value, cls) {
+  const row = el("div", "arg-row");
+  row.appendChild(el("span", "arg-key", escapeHtml(label)));
+  const box = el("span", "arg-val" + (cls ? " " + cls : ""));
+  box.textContent = String(value);
+  row.appendChild(box);
+  return row;
+}
+
+function renderToolArgs(name, args) {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return null;
+
+  switch (name) {
+    case "read":
+    case "read_document":
+    case "write":
+      return chipRow("文件", args.file_path || args.path || "—", "path");
+
+    case "edit": {
+      const box = el("div", "arg-stack");
+      if (args.file_path) box.appendChild(chipRow("文件", args.file_path, "path"));
+      const diff = el("div", "arg-diff");
+      for (const [key, cls, sign] of [["old_string", "old", "- "], ["new_string", "new", "+ "]]) {
+        if (args[key] === undefined) continue;
+        const line = el("div", "diff-line " + cls);
+        line.textContent = sign + String(args[key]);
+        diff.appendChild(line);
+      }
+      if (diff.children.length) box.appendChild(diff);
+      return box;
+    }
+
+    case "grep": {
+      const box = el("div", "arg-stack");
+      box.appendChild(chipRow("搜索", args.pattern ?? "—", "pattern"));
+      if (args.path) box.appendChild(chipRow("范围", args.path, "path"));
+      if (args.glob || args.type) box.appendChild(chipRow("过滤", args.glob || args.type));
+      return box;
+    }
+
+    case "glob":
+      return chipRow("匹配", args.pattern ?? "—", "pattern");
+
+    case "pwsh":
+    case "bash": {
+      const box = el("div", "arg-stack");
+      if (args.description) box.appendChild(el("div", "arg-desc", escapeHtml(args.description)));
+      const term = el("pre", "code term");
+      term.textContent = "$ " + String(args.command ?? "");
+      box.appendChild(term);
+      return box;
+    }
+
+    case "web_search":
+      return chipRow("查询", args.query ?? "—", "pattern");
+
+    case "web_fetch": {
+      const box = el("div", "arg-stack");
+      box.appendChild(chipRow("URL", args.url ?? "—", "path"));
+      if (args.prompt) box.appendChild(el("div", "arg-desc", escapeHtml(String(args.prompt).slice(0, 200))));
+      return box;
+    }
+
+    case "todo_write": {
+      const list = args.todos || args.items;
+      if (!Array.isArray(list)) return null;
+      const box = el("div", "arg-stack");
+      for (const item of list.slice(0, 20)) {
+        const status = String((item && item.status) || "pending");
+        const cls = status === "completed" ? "done" : status === "in_progress" ? "active" : "";
+        const row = el("div", "todo-row " + cls);
+        row.appendChild(el("span", "todo-mark",
+          status === "completed" ? "✓" : status === "in_progress" ? "▸" : "○"));
+        const label = el("span", "todo-text");
+        label.textContent = String((item && (item.content ?? item.text)) ?? "");
+        row.appendChild(label);
+        box.appendChild(row);
+      }
+      return box;
+    }
+
+    case "subagent":
+    case "subagent_fork":
+    case "workflow":
+    case "send_message": {
+      const prompt = args.prompt || args.message;
+      if (!prompt) return null;
+      const pre = el("pre", "code");
+      pre.textContent = String(prompt).slice(0, 600);
+      return pre;
+    }
+
+    default: {
+      // 全是标量的参数：按行渲染，比整块 JSON 好读
+      const keys = Object.keys(args);
+      if (!keys.length || keys.length > 8) return null;
+      if (!keys.every((k) => args[k] === null || typeof args[k] !== "object")) return null;
+      const box = el("div", "arg-stack");
+      for (const key of keys) box.appendChild(chipRow(key, args[key] ?? "—"));
+      return box;
+    }
+  }
+}
+
+/* ==========================================================================
+   GenUI 渲染器（```dsh-ui 围栏）
+   --------------------------------------------------------------------------
+   围栏规范由 dsh-genui 的宿主半边注入系统提示词（见 docqa/plugin/genui），
+   这里承担它的"浏览器半边"：把围栏 JSON 渲染成真实组件。之所以不直接用插件
+   自带的 React 渲染器，是因为那半边依赖 DSH 客户端运行时（__ModuleLoader__ /
+   slots / sessions / inputTriggers），而 docqa 是无构建步骤的单文件前端。
+   限额与插件对齐：maxDepth 8 / maxNodes 200 / 单字符串 2000。
+   ========================================================================== */
+const GENUI = { maxDepth: 8, maxNodes: 200, maxString: 2000, maxChartPoints: 40, maxOptions: 20 };
+
+const gstr = (v, limit = GENUI.maxString) => (v === undefined || v === null ? "" : String(v).slice(0, limit));
+const gnum = (v, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+
+function gel(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = gstr(text);
+  return node;
+}
+
+/** 容错修复：字符串里的裸引号、尾逗号、未闭合的括号/引号（与插件同思路）。 */
+function genuiRepairJson(raw) {
+  let text = "";
+  let inStr = false;
+  let esc = false;
+  let repairs = 0;
+  const stack = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (esc) { text += ch; esc = false; continue; }
+    if (inStr) {
+      if (ch === "\\") { text += ch; esc = true; continue; }
+      if (ch !== '"') { text += ch; continue; }
+      let j = i + 1;
+      while (j < raw.length && /\s/.test(raw[j])) j += 1;
+      const next = raw[j] ?? "";
+      if (next === "" || next === "," || next === "]" || next === "}" || next === ":") {
+        inStr = false; text += ch;
+      } else { text += '\\"'; repairs += 1; }
+      continue;
+    }
+    if (ch === '"') { inStr = true; text += ch; continue; }
+    if (ch === "{") { stack.push("}"); text += ch; continue; }
+    if (ch === "[") { stack.push("]"); text += ch; continue; }
+    if (ch === "}" || ch === "]") {
+      if (stack[stack.length - 1] === ch) { stack.pop(); text += ch; } else repairs += 1;
+      continue;
+    }
+    if (ch === ",") {
+      let j = i + 1;
+      while (j < raw.length && /\s/.test(raw[j])) j += 1;
+      const next = raw[j] ?? "";
+      if (next === "}" || next === "]" || next === "") { repairs += 1; continue; }
+    }
+    text += ch;
+  }
+  if (inStr) { text += '"'; repairs += 1; }
+  while (stack.length) { text += stack.pop(); repairs += 1; }
+  return repairs > 0 ? text : null;
+}
+
+const isGenuiRoot = (s) => Boolean(s) && typeof s === "object" && !Array.isArray(s) && Array.isArray(s.items);
+
+function parseGenuiSpec(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+  try {
+    const spec = JSON.parse(text);
+    if (isGenuiRoot(spec)) return spec;
+  } catch { /* 落到修复路径 */ }
+  const repaired = genuiRepairJson(text);
+  if (!repaired) return null;
+  try {
+    const spec = JSON.parse(repaired);
+    return isGenuiRoot(spec) ? spec : null;
+  } catch { return null; }
+}
+
+/* ---------------------------------------------------------------- 交互动作 */
+const GENUI_TONES = ["primary", "danger", "success", "ghost"];
+const genuiTone = (tone, fallback = "") => (GENUI_TONES.includes(tone) ? tone : fallback);
+
+/** 把一次组件动作变成本会话的下一轮提问（服务端 /api/genui-action）。 */
+async function genuiDispatch(name, payload) {
+  const label = Object.keys(payload || {}).length ? " " + JSON.stringify(payload) : "";
+  pushUser(`[genui-action] ${name}${label}`, []);
+  const body = openTurn();
+  S.lastSeq = 0;
+  S.busy = true;
+  updateSendState();
+  try {
+    const res = await fetch("/api/genui-action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: name, payload }),
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.detail || res.statusText);
+    }
+    const { job_id } = await res.json();
+    await streamJob(job_id);
+  } catch (err) {
+    showError(body, S.turnEl, err.message);
+  } finally {
+    S.busy = false;
+    updateSendState();
+    loadState().catch(() => {});
+  }
+}
+
+/* ------------------------------------------------------------ 图表与函数图 */
+const GENUI_SERIES_COLORS = ["#7aa2f7", "#9ece6a", "#e0af68", "#f7768e", "#bb9af7", "#7dcfff"];
+
+function genuiData(node) {
+  return (Array.isArray(node.data) ? node.data : [])
+    .slice(0, GENUI.maxChartPoints)
+    .map((d, i) => ({
+      label: gstr(d && d.label, 60),
+      value: gnum(d && d.value, 0),
+      color: d && typeof d.color === "string" ? d.color : GENUI_SERIES_COLORS[i % GENUI_SERIES_COLORS.length],
+    }));
+}
+
+function genuiBars(data) {
+  const max = Math.max(...data.map((d) => Math.max(0, d.value)), 1);
+  const box = gel("div", "g-bars");
+  for (const d of data) {
+    const col = gel("div", "g-bar-col");
+    col.title = `${d.label}: ${d.value}`;
+    const track = gel("div", "g-bar-track");
+    const fill = gel("div", "g-bar-fill");
+    fill.style.height = Math.round((Math.max(0, d.value) / max) * 100) + "%";
+    fill.style.background = d.color;
+    track.appendChild(fill);
+    col.appendChild(track);
+    col.appendChild(gel("div", "g-bar-value", d.value));
+    col.appendChild(gel("div", "g-bar-label", d.label));
+    box.appendChild(col);
+  }
+  return box;
+}
+
+function genuiLine(data) {
+  const max = Math.max(...data.map((d) => Math.max(0, d.value)), 1);
+  const step = data.length > 1 ? 424 / (data.length - 1) : 0;
+  const points = data.map((d, i) => `${36 + i * step},${136 - (Math.max(0, d.value) / max) * 118}`).join(" ");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 460 150");
+  svg.setAttribute("class", "g-svg");
+  svg.innerHTML =
+    '<line x1="36" y1="136" x2="452" y2="136" class="g-axis" />' +
+    `<polyline points="${points}" class="g-line" fill="none" />` +
+    data.map((d, i) => {
+      const [x, y] = points.split(" ")[i].split(",");
+      return `<circle cx="${x}" cy="${y}" r="3" fill="${d.color}"><title>${escapeHtml(d.label)}: ${d.value}</title></circle>`;
+    }).join("");
+  const wrap = gel("div", "g-line-wrap");
+  wrap.appendChild(svg);
+  const labels = gel("div", "g-legend");
+  data.forEach((d) => labels.appendChild(gel("span", "g-legend-item", d.label)));
+  wrap.appendChild(labels);
+  return wrap;
+}
+
+function genuiDonut(data) {
+  const total = data.reduce((sum, d) => sum + Math.max(0, d.value), 0) || 1;
+  const circ = 2 * Math.PI * 42;
+  let offset = 0;
+  const arcs = data.map((d) => {
+    const len = (Math.max(0, d.value) / total) * circ;
+    const seg = `<circle cx="60" cy="60" r="42" fill="none" stroke-width="14" stroke="${d.color}"` +
+      ` stroke-dasharray="${len} ${circ - len}" stroke-dashoffset="${-offset}" transform="rotate(-90 60 60)">` +
+      `<title>${escapeHtml(d.label)}: ${d.value}</title></circle>`;
+    offset += len;
+    return seg;
+  }).join("");
+  const wrap = gel("div", "g-donut-wrap");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 120 120");
+  svg.setAttribute("class", "g-svg g-donut");
+  svg.innerHTML = `<circle cx="60" cy="60" r="42" fill="none" stroke-width="14" class="g-donut-track" />` + arcs +
+    `<text x="60" y="58" text-anchor="middle" class="g-donut-total">${total >= 1000 ? Math.round(total / 100) / 10 + "k" : total}</text>` +
+    '<text x="60" y="74" text-anchor="middle" class="g-donut-label">合计</text>';
+  wrap.appendChild(svg);
+  const legend = gel("div", "g-legend g-legend-col");
+  data.forEach((d) => {
+    const item = gel("span", "g-legend-item");
+    const swatch = gel("span", "g-legend-swatch");
+    swatch.style.background = d.color;
+    item.appendChild(swatch);
+    item.appendChild(gel("span", null, `${d.label} · ${d.value}`));
+    legend.appendChild(item);
+  });
+  wrap.appendChild(legend);
+  return wrap;
+}
+
+function genuiChart(node) {
+  const data = genuiData(node);
+  if (!data.length) return gel("div", "g-empty", "（无数据）");
+  if (node.kind === "donut") return genuiDonut(data);
+  if (node.kind === "line") return genuiLine(data);
+  return genuiBars(data);
+}
+
+/* 函数图：白名单表达式的递归下降求值（与插件同文法） */
+const PLOT_FUNCS = {
+  sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan,
+  sqrt: Math.sqrt, cbrt: Math.cbrt, exp: Math.exp, log: Math.log10, ln: Math.log, abs: Math.abs,
+  floor: Math.floor, ceil: Math.ceil, round: Math.round, min: Math.min, max: Math.max, pow: Math.pow,
+};
+const PLOT_CONSTS = { pi: Math.PI, e: Math.E, tau: Math.PI * 2 };
+
+function compileExpr(src) {
+  let i = 0;
+  const s = String(src ?? "");
+  const ws = () => { while (i < s.length && /\s/.test(s[i])) i += 1; };
+  const peek = () => s[i];
+  function expr() {
+    let left = term();
+    for (;;) {
+      ws();
+      const c = peek();
+      if (c !== "+" && c !== "-") return left;
+      i += 1;
+      const right = term();
+      left = c === "+" ? ((x, v) => left(x, v) + right(x, v)) : ((x, v) => left(x, v) - right(x, v));
+    }
+  }
+  function term() {
+    let left = power();
+    for (;;) {
+      ws();
+      const c = peek();
+      if (c !== "*" && c !== "/" && c !== "%") return left;
+      i += 1;
+      const right = power();
+      left = c === "*" ? ((x, v) => left(x, v) * right(x, v))
+        : c === "/" ? ((x, v) => left(x, v) / right(x, v))
+          : ((x, v) => left(x, v) % right(x, v));
+    }
+  }
+  function power() {
+    const base = atom();
+    ws();
+    if (peek() !== "^") return base;
+    i += 1;
+    const exp = power();
+    return (x, v) => Math.pow(base(x, v), exp(x, v));
+  }
+  function atom() {
+    ws();
+    const c = peek();
+    if (c === "(") {
+      i += 1;
+      const inner = expr();
+      ws();
+      if (peek() !== ")") throw new Error("expected )");
+      i += 1;
+      return inner;
+    }
+    if (/[0-9.]/.test(c)) {
+      const start = i;
+      while (i < s.length && /[0-9.eE]/.test(s[i])) i += 1;
+      const value = Number(s.slice(start, i));
+      if (!Number.isFinite(value)) throw new Error("bad number");
+      return () => value;
+    }
+    if (/[a-zA-Z_]/.test(c)) {
+      const start = i;
+      while (i < s.length && /[a-zA-Z0-9_]/.test(s[i])) i += 1;
+      const name = s.slice(start, i);
+      ws();
+      if (peek() === "(") {
+        const fn = PLOT_FUNCS[name];
+        if (!fn) throw new Error("unknown fn " + name);
+        i += 1;
+        const args = [];
+        ws();
+        if (peek() !== ")") {
+          for (;;) {
+            args.push(expr());
+            ws();
+            if (peek() === ",") { i += 1; continue; }
+            break;
+          }
+        }
+        ws();
+        if (peek() !== ")") throw new Error("expected ) in call");
+        i += 1;
+        return (x, v) => fn(...args.map((a) => a(x, v)));
+      }
+      if (Object.hasOwn(PLOT_CONSTS, name)) return () => PLOT_CONSTS[name];
+      if (name === "x") return (x) => x;
+      if (Object.hasOwn(PLOT_VARS, name)) return () => PLOT_VARS[name];
+      if (/^[a-z]$/.test(name)) return () => 1;
+      throw new Error("unknown identifier " + name);
+    }
+    throw new Error("unexpected char");
+  }
+  const fn = expr();
+  ws();
+  if (i < s.length) throw new Error("trailing input");
+  return fn;
+}
+
+let PLOT_VARS = {};
+
+function genuiPlot(node) {
+  const series = (Array.isArray(node.series) ? node.series : []).slice(0, 6);
+  const box = gel("div", "g-plot");
+  if (node.title) box.appendChild(gel("div", "g-title", node.title));
+  const xMin = gnum(node.xMin, -5);
+  const xMax = gnum(node.xMax, 5);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 480 220");
+  svg.setAttribute("class", "g-svg g-plot-svg");
+  box.appendChild(svg);
+  const sliders = gel("div", "g-sliders");
+
+  function draw() {
+    const params = {};
+    series.forEach((s, si) => (s.params || []).forEach((p) => { params[`${si}:${p.name}`] = gnum(p.value, 0); }));
+    const curves = series.map((s, si) => {
+      const vars = {};
+      (s.params || []).forEach((p) => { vars[p.name] = params[`${si}:${p.name}`]; });
+      const saved = PLOT_VARS;
+      PLOT_VARS = { ...saved, ...vars };
+      let fn = null;
+      try { fn = compileExpr(s.expr); } catch { fn = null; }
+      PLOT_VARS = saved;
+      if (!fn) return null;
+      const pts = [];
+      for (let k = 0; k < 240; k += 1) {
+        const x = xMin + ((xMax - xMin) * k) / 239;
+        const y = fn(x, vars);
+        if (Number.isFinite(y)) pts.push([x, y]);
+      }
+      return { series: s, pts };
+    }).filter(Boolean);
+
+    const ys = curves.flatMap((c) => c.pts.map((p) => p[1]));
+    let yMin = Number.isFinite(Number(node.yMin)) ? Number(node.yMin) : Math.min(...ys);
+    let yMax = Number.isFinite(Number(node.yMax)) ? Number(node.yMax) : Math.max(...ys);
+    if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) { yMin = -1; yMax = 1; }
+    if (yMin === yMax) { yMin -= 1; yMax += 1; }
+    const pad = (yMax - yMin) * 0.08;
+    yMin -= pad; yMax += pad;
+    const px = (x) => 34 + ((x - xMin) / (xMax - xMin)) * 436;
+    const py = (y) => 14 + (1 - (y - yMin) / (yMax - yMin)) * 182;
+    const parts = [];
+    for (let k = 0; k <= 4; k += 1) {
+      const y = yMin + ((yMax - yMin) * k) / 4;
+      parts.push(`<line x1="34" y1="${py(y).toFixed(1)}" x2="470" y2="${py(y).toFixed(1)}" class="g-grid" />`);
+      parts.push(`<text x="28" y="${(py(y) + 4).toFixed(1)}" text-anchor="end" class="g-tick">${y.toFixed(1)}</text>`);
+    }
+    parts.push('<line x1="34" y1="196" x2="470" y2="196" class="g-axis" />');
+    parts.push('<line x1="34" y1="14" x2="34" y2="196" class="g-axis" />');
+    curves.forEach((c, ci) => {
+      const color = c.series.color || GENUI_SERIES_COLORS[ci % GENUI_SERIES_COLORS.length];
+      const d = c.pts.map(([x, y]) => `${px(x).toFixed(1)},${py(y).toFixed(1)}`).join(" ");
+      const kind = c.series.kind || "line";
+      if (kind === "scatter") {
+        parts.push(c.pts.map(([x, y]) => `<circle cx="${px(x).toFixed(1)}" cy="${py(y).toFixed(1)}" r="2" fill="${color}" />`).join(""));
+      } else if (kind === "area") {
+        const base = py(Math.max(yMin, Math.min(yMax, 0))).toFixed(1);
+        parts.push(`<polygon points="${c.pts[0][0] ? px(c.pts[0][0]).toFixed(1) : 34},${base} ${d} ${px(c.pts[c.pts.length - 1][0]).toFixed(1)},${base}" fill="${color}" fill-opacity="0.16" />`);
+        parts.push(`<polyline points="${d}" fill="none" stroke="${color}" stroke-width="2" />`);
+      } else {
+        parts.push(`<polyline points="${d}" fill="none" stroke="${color}" stroke-width="2" />`);
+      }
+    });
+    svg.innerHTML = parts.join("");
+
+    sliders.innerHTML = "";
+    const withParams = series.filter((s) => (s.params || []).length);
+    if (!withParams.length) return;
+    sliders.appendChild(gel("div", "g-slider-head", "参数调节"));
+    series.forEach((s, si) => (s.params || []).forEach((p) => {
+      const row = gel("label", "g-slider-row");
+      row.appendChild(gel("span", "g-slider-name", `${s.label || s.expr} · ${p.name}`));
+      const input = document.createElement("input");
+      input.type = "range";
+      input.className = "g-slider";
+      input.min = gnum(p.min, 0);
+      input.max = gnum(p.max, 10);
+      input.step = gnum(p.step, 0.1);
+      input.value = gnum(p.value, 0);
+      input.addEventListener("input", () => {
+        p.value = Number(input.value);
+        row.querySelector(".g-slider-value").textContent = String(Math.round(Number(input.value) * 100) / 100);
+        draw();
+      });
+      row.appendChild(input);
+      row.appendChild(gel("span", "g-slider-value", String(gnum(p.value, 0))));
+      sliders.appendChild(row);
+    }));
+  }
+
+  draw();
+  if (sliders.childElementCount) box.appendChild(sliders);
+  return box;
+}
+
+/* ------------------------------------------------------------ 懒加载资产 */
+const GENUI_LOADED = new Map();
+function genuiLoadScript(key, src) {
+  if (GENUI_LOADED.has(key)) return GENUI_LOADED.get(key);
+  const promise = new Promise((resolve, reject) => {
+    const tag = document.createElement("script");
+    tag.src = src;
+    tag.async = true;
+    tag.onload = () => resolve(true);
+    tag.onerror = () => reject(new Error("加载失败 " + src));
+    document.head.appendChild(tag);
+  });
+  GENUI_LOADED.set(key, promise);
+  return promise;
+}
+
+function genuiMermaid(node) {
+  const holder = gel("div", "g-mermaid", "正在渲染 mermaid …");
+  const code = gstr(node.code, 20000);
+  genuiLoadScript("mermaid", "/plugin-assets/mermaid.js")
+    .then(() => {
+      // 这个资产不是标准 mermaid 发行版：它把包装好的渲染器注册在
+      // globalThis.__GenuiAssets__.mermaid 上，内部做了 kind 白名单校验、
+      // securityLevel=strict、源码修复后重试。
+      const api = globalThis.__GenuiAssets__ && globalThis.__GenuiAssets__.mermaid;
+      if (!api || typeof api.renderMermaid !== "function") throw new Error("__GenuiAssets__.mermaid 未注册");
+      return api.renderMermaid(code);
+    })
+    .then((svg) => {
+      if (typeof svg !== "string" || !svg.trim()) { holder.textContent = "（mermaid 渲染结果为空）"; return; }
+      holder.innerHTML = svg;
+    })
+    .catch((err) => {
+      holder.classList.add("g-error");
+      holder.textContent = "mermaid 渲染失败：" + err.message;
+    });
+  return holder;
+}
+
+function genuiScene3d(node) {
+  const holder = gel("div", "g-scene", "正在加载 three.js …");
+  genuiLoadScript("three", "/plugin-assets/three.js")
+    .then(() => {
+      // 同理：three 也是包装过的，mountScene(container, spec) 自带相机/光照/网格、
+      // 拖拽旋转、滚轮缩放与尺寸自适应，返回一个 dispose 函数。
+      const api = globalThis.__GenuiAssets__ && globalThis.__GenuiAssets__.three;
+      if (!api || typeof api.mountScene !== "function") throw new Error("__GenuiAssets__.three 未注册");
+      holder.textContent = "";
+      return api.mountScene(holder, node);
+    })
+    .then((dispose) => { if (typeof dispose === "function") holder.genuiDispose = dispose; })
+    .catch((err) => {
+      holder.classList.add("g-error");
+      holder.textContent = "3D 渲染失败：" + err.message;
+    });
+  return holder;
+}
+
+/* ---------------------------------------------------------------- 单节点 */
+function renderGenuiNode(node, ctx, depth) {
+  if (!node || typeof node !== "object" || Array.isArray(node) || depth > GENUI.maxDepth) return null;
+  const type = typeof node.type === "string" ? node.type : "";
+  if (!type) return null;
+  const kids = (items) => (Array.isArray(items) ? items : [])
+    .map((child) => renderGenuiNode(child, ctx, depth + 1))
+    .filter(Boolean);
+  const wrapKids = (cls, items, extra) => {
+    const box = gel("div", cls);
+    if (extra) box.appendChild(extra);
+    kids(items).forEach((n) => box.appendChild(n));
+    return box;
+  };
+
+  switch (type) {
+    /* ---- 文本与装饰 ---- */
+    case "text": {
+      const size = ["h1", "h2", "h3", "body", "muted", "caption"].includes(node.size) ? node.size : "body";
+      const tag = size === "h1" ? "h1" : size === "h2" ? "h2" : size === "h3" ? "h3" : "p";
+      const el2 = gel(tag, "g-text g-text-" + size, node.content);
+      if (node.center) el2.style.textAlign = "center";
+      return el2;
+    }
+    case "divider": return gel("hr", "g-divider");
+    case "spacer": return gel("div", "g-spacer");
+    case "badge": {
+      const b = gel("span", "g-badge g-tone-" + genuiTone(node.tone, "accent"));
+      if (node.icon) b.appendChild(gel("span", "g-badge-ico", node.icon));
+      b.appendChild(gel("span", null, node.label));
+      return b;
+    }
+    case "avatar": return gel("span", "g-avatar", gstr(node.name, 2).toUpperCase() || "?");
+    case "link": {
+      if (typeof node.href === "string" && /^(https?:|mailto:)/i.test(node.href)) {
+        const a = gel("a", "g-link", node.label || node.href);
+        a.href = node.href;
+        a.target = "_blank";
+        a.rel = "noreferrer";
+        return a;
+      }
+      return gel("span", "g-link-plain", node.label);
+    }
+    case "progress": {
+      const box = gel("div", "g-progress");
+      if (node.label) box.appendChild(gel("div", "g-progress-label", node.label));
+      const track = gel("div", "g-progress-track");
+      const fill = gel("div", "g-progress-fill");
+      fill.style.width = Math.max(0, Math.min(100, gnum(node.value, 0))) + "%";
+      track.appendChild(fill);
+      box.appendChild(track);
+      box.appendChild(gel("div", "g-progress-value", node.valueLabel || gnum(node.value, 0) + "%"));
+      return box;
+    }
+    case "stat": {
+      const box = gel("div", "g-stat");
+      box.appendChild(gel("div", "g-stat-label", node.label));
+      box.appendChild(gel("div", "g-stat-value", node.value));
+      if (node.delta) {
+        const d = gel("div", "g-stat-delta", node.delta);
+        d.classList.add(String(node.delta).trim().startsWith("-") ? "down" : "up");
+        box.appendChild(d);
+      }
+      return box;
+    }
+    case "code": {
+      const pre = document.createElement("pre");
+      pre.className = "g-code";
+      pre.appendChild(gel("code", null, node.code));
+      return pre;
+    }
+    case "json": {
+      const details = document.createElement("details");
+      details.className = "g-json";
+      details.open = true;
+      details.appendChild(gel("summary", null, "JSON"));
+      const pre = document.createElement("pre");
+      pre.className = "g-code";
+      pre.appendChild(gel("code", null, JSON.stringify(node.value, null, 2)));
+      details.appendChild(pre);
+      return details;
+    }
+    case "diff": {
+      const box = gel("div", "g-diff");
+      for (const d of (Array.isArray(node.diffs) ? node.diffs : []).slice(0, 20)) {
+        if (!d || typeof d !== "object") continue;
+        box.appendChild(gel("div", "g-diff-path", d.path));
+        if (d.oldText) box.appendChild(gel("pre", "g-diff-old", d.oldText));
+        if (d.newText) box.appendChild(gel("pre", "g-diff-new", d.newText));
+      }
+      return box;
+    }
+    case "keyvalue": {
+      const box = gel("div", "g-kv");
+      for (const pair of (Array.isArray(node.pairs) ? node.pairs : []).slice(0, 50)) {
+        if (!pair || typeof pair !== "object") continue;
+        const row = gel("div", "g-kv-row");
+        row.appendChild(gel("span", "g-kv-key", pair.key));
+        row.appendChild(gel("span", "g-kv-value", pair.value));
+        box.appendChild(row);
+      }
+      return box;
+    }
+    case "callout": {
+      const box = gel("div", "g-callout g-tone-" + genuiTone(node.tone, "info"));
+      if (node.title) box.appendChild(gel("div", "g-callout-title", node.title));
+      box.appendChild(gel("div", "g-callout-body", node.content));
+      return box;
+    }
+    case "list": {
+      const box = gel("ul", "g-list");
+      for (const item of (Array.isArray(node.items) ? node.items : []).slice(0, 40)) {
+        const li = gel("li", "g-list-item");
+        if (item && typeof item === "object") {
+          if (item.title) li.appendChild(gel("div", "g-list-title", item.title));
+          if (item.desc) li.appendChild(gel("div", "g-list-desc", item.desc));
+        } else {
+          li.appendChild(gel("span", null, item));
+        }
+        box.appendChild(li);
+      }
+      return box;
+    }
+    case "steps": {
+      const box = gel("div", "g-steps");
+      const list = Array.isArray(node.steps) ? node.steps : [];
+      const current = gnum(node.current, 1);
+      list.forEach((step, i) => {
+        const row = gel("div", "g-step");
+        row.classList.add(i + 1 < current ? "done" : i + 1 === current ? "active" : "todo");
+        row.appendChild(gel("span", "g-step-mark", i + 1 < current ? "✓" : String(i + 1)));
+        const body = gel("div", "g-step-body");
+        body.appendChild(gel("div", "g-step-title", step && step.title));
+        if (step && step.desc) body.appendChild(gel("div", "g-step-desc", step.desc));
+        row.appendChild(body);
+        box.appendChild(row);
+      });
+      return box;
+    }
+    case "table": {
+      const columns = (Array.isArray(node.columns) ? node.columns : []).map((c) => gstr(c, 200));
+      const rows = (Array.isArray(node.rows) ? node.rows : []).slice(0, 200)
+        .map((r) => (Array.isArray(r) ? r.slice(0, 30) : []));
+      const table = gel("table", "g-table");
+      const thead = gel("thead");
+      const hrow = gel("tr");
+      columns.forEach((col, idx) => {
+        const th = gel("th", null, col);
+        th.title = "点击排序";
+        th.addEventListener("click", () => {
+          const dir = th.dataset.dir === "asc" ? "desc" : "asc";
+          hrow.querySelectorAll("th").forEach((h) => { h.dataset.dir = ""; h.classList.remove("asc", "desc"); });
+          th.dataset.dir = dir;
+          th.classList.add(dir);
+          const sorted = rows.slice().sort((a, b) => {
+            const x = a[idx], y = b[idx];
+            const nx = Number(String(x).replace(/[^0-9.\-]/g, ""));
+            const ny = Number(String(y).replace(/[^0-9.\-]/g, ""));
+            const numeric = Number.isFinite(nx) && Number.isFinite(ny) && /[0-9]/.test(String(x)) && /[0-9]/.test(String(y));
+            const cmp = numeric ? nx - ny : String(x).localeCompare(String(y), "zh");
+            return dir === "asc" ? cmp : -cmp;
+          });
+          renderRows(sorted);
+        });
+        hrow.appendChild(th);
+      });
+      thead.appendChild(hrow);
+      table.appendChild(thead);
+      const tbody = gel("tbody");
+      const renderRows = (list) => {
+        tbody.innerHTML = "";
+        list.forEach((r) => {
+          const tr = gel("tr");
+          columns.forEach((_, idx) => tr.appendChild(gel("td", null, r[idx] === undefined ? "" : r[idx])));
+          tbody.appendChild(tr);
+        });
+      };
+      renderRows(rows);
+      table.appendChild(tbody);
+      return table;
+    }
+    case "chart": return genuiChart(node);
+    case "plot": return genuiPlot(node);
+    case "timeline": {
+      const box = gel("div", "g-timeline");
+      for (const item of (Array.isArray(node.items) ? node.items : []).slice(0, 30)) {
+        if (!item || typeof item !== "object") continue;
+        const row = gel("div", "g-tl-item");
+        row.appendChild(gel("div", "g-tl-time", item.time));
+        const body = gel("div", "g-tl-body");
+        body.appendChild(gel("div", "g-tl-title", item.title));
+        if (item.desc) body.appendChild(gel("div", "g-tl-desc", item.desc));
+        row.appendChild(body);
+        box.appendChild(row);
+      }
+      return box;
+    }
+    case "file-tree": {
+      const build = (items, depth2) => {
+        const ul = gel("ul", "g-tree");
+        for (const item of (Array.isArray(items) ? items : []).slice(0, 100)) {
+          if (!item || typeof item !== "object") continue;
+          const li = gel("li", "g-tree-node");
+          const isDir = item.type === "dir" || Array.isArray(item.children);
+          const label = gel("div", "g-tree-label" + (isDir ? " dir" : ""),
+            (isDir ? "📁 " : "📄 ") + gstr(item.name, 200));
+          li.appendChild(label);
+          if (isDir && Array.isArray(item.children) && depth2 < GENUI.maxDepth) {
+            const childBox = build(item.children, depth2 + 1);
+            childBox.hidden = depth2 > 0;
+            li.appendChild(childBox);
+            label.style.cursor = "pointer";
+            label.addEventListener("click", () => { childBox.hidden = !childBox.hidden; label.classList.toggle("open", !childBox.hidden); });
+          }
+          ul.appendChild(li);
+        }
+        return ul;
+      };
+      return build(node.items, 0);
+    }
+    case "breadcrumb": {
+      const box = gel("div", "g-crumbs");
+      (Array.isArray(node.items) ? node.items : []).slice(0, 20).forEach((item, i) => {
+        if (i) box.appendChild(gel("span", "g-crumb-sep", "›"));
+        box.appendChild(gel("span", "g-crumb", item));
+      });
+      return box;
+    }
+    case "copy": {
+      const btn = gel("button", "g-btn g-ghost g-copy", node.label || "复制");
+      btn.type = "button";
+      btn.addEventListener("click", () => {
+        const text = gstr(node.text, 20000);
+        const done = () => { btn.textContent = "已复制"; setTimeout(() => { btn.textContent = node.label || "复制"; }, 1200); };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, done);
+        else done();
+      });
+      return btn;
+    }
+    case "mermaid": return genuiMermaid(node);
+    case "scene3d": return genuiScene3d(node);
+
+    /* ---- 布局 ---- */
+    case "row": {
+      const box = wrapKids("g-row" + (node.wrap ? " wrap" : ""), node.items);
+      if (node.gap !== undefined) box.style.gap = gnum(node.gap, 12) + "px";
+      if (node.spacer) box.appendChild(gel("div", "g-row-spacer"));
+      return box;
+    }
+    case "col": {
+      const box = wrapKids("g-col" + (node.wrap ? " wrap" : ""), node.items);
+      if (node.gap !== undefined) box.style.gap = gnum(node.gap, 12) + "px";
+      return box;
+    }
+    case "grid": {
+      const box = wrapKids("g-grid", node.items);
+      box.style.gridTemplateColumns = `repeat(${Math.max(1, Math.min(6, gnum(node.cols, 2)))}, minmax(0, 1fr))`;
+      return box;
+    }
+    case "card": {
+      const box = gel("div", "g-card");
+      if (node.title) box.appendChild(gel("div", "g-card-title", node.title));
+      kids(node.items).forEach((n) => box.appendChild(n));
+      return box;
+    }
+    case "tabs": {
+      const box = gel("div", "g-tabs");
+      const bar = gel("div", "g-tab-bar");
+      const panes = gel("div", "g-tab-panes");
+      const tabs = (Array.isArray(node.tabs) ? node.tabs : []).slice(0, 12);
+      tabs.forEach((tab, i) => {
+        const btn = gel("button", "g-tab" + (i === 0 ? " active" : ""), tab && tab.label);
+        btn.type = "button";
+        const pane = gel("div", "g-tab-pane");
+        if (i !== 0) pane.hidden = true;
+        kids(tab && tab.items).forEach((n) => pane.appendChild(n));
+        btn.addEventListener("click", () => {
+          bar.querySelectorAll(".g-tab").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          [...panes.children].forEach((p, idx) => { p.hidden = idx !== i; });
+        });
+        bar.appendChild(btn);
+        panes.appendChild(pane);
+      });
+      box.appendChild(bar);
+      box.appendChild(panes);
+      return box;
+    }
+    case "accordion": {
+      const box = gel("div", "g-accordion");
+      for (const item of (Array.isArray(node.items) ? node.items : []).slice(0, 20)) {
+        if (!item || typeof item !== "object") continue;
+        const details = document.createElement("details");
+        details.className = "g-acc-item";
+        details.appendChild(gel("summary", null, item.title));
+        const body = gel("div", "g-acc-body");
+        kids(item.items).forEach((n) => body.appendChild(n));
+        details.appendChild(body);
+        box.appendChild(details);
+      }
+      return box;
+    }
+
+    /* ---- 交互控件 ---- */
+    case "button": {
+      const btn = gel("button", "g-btn g-" + genuiTone(node.tone, "primary"), node.label);
+      btn.type = "button";
+      if (node.full) btn.classList.add("full");
+      if (node.small) btn.classList.add("small");
+      if (node.action) btn.addEventListener("click", () => ctx.action(node.action, {}));
+      else { btn.disabled = true; btn.title = "缺少 action"; }
+      return btn;
+    }
+    case "input":
+    case "textarea": {
+      const isArea = type === "textarea";
+      const label = gel("label", "g-field");
+      if (node.label) label.appendChild(gel("span", "g-field-label", node.label));
+      const field = document.createElement(isArea ? "textarea" : "input");
+      field.className = "g-control";
+      if (isArea) field.rows = Math.max(1, gnum(node.rows, 4));
+      else field.type = ["text", "email"].includes(node.inputType) ? node.inputType : "text";
+      field.placeholder = gstr(node.placeholder);
+      field.value = gstr(node.value);
+      if (node.id) ctx.fields[node.id] = field.value;
+      let last = field.value;
+      const fire = (submit) => {
+        if (node.id) ctx.fields[node.id] = field.value;
+        if (node.action) ctx.action(node.action, { type: isArea ? "textarea" : "input", value: field.value, ...(node.id ? { id: node.id } : {}), ...(submit ? { submit: true } : {}) });
+      };
+      field.addEventListener("input", () => { last = field.value; if (node.id) ctx.fields[node.id] = field.value; });
+      field.addEventListener("blur", () => { if (field.value !== last) fire(false); });
+      field.addEventListener("keydown", (e) => {
+        const enter = e.key === "Enter" && (isArea ? (e.metaKey || e.ctrlKey) : !e.shiftKey);
+        if (enter) { e.preventDefault(); fire(true); }
+      });
+      label.appendChild(field);
+      return label;
+    }
+    case "select": {
+      const label = gel("label", "g-field");
+      if (node.label) label.appendChild(gel("span", "g-field-label", node.label));
+      const sel = document.createElement("select");
+      sel.className = "g-control";
+      const options = (Array.isArray(node.options) ? node.options : []).slice(0, GENUI.maxOptions);
+      options.forEach((opt, i) => {
+        const o = document.createElement("option");
+        o.value = gstr(opt, 200);
+        o.textContent = gstr(opt, 200);
+        if (i === gnum(node.selected, -1)) o.selected = true;
+        sel.appendChild(o);
+      });
+      if (node.id) ctx.fields[node.id] = sel.value;
+      sel.addEventListener("change", () => {
+        if (node.id) ctx.fields[node.id] = sel.value;
+        if (node.action) ctx.action(node.action, { type: "select", value: sel.value, ...(node.id ? { id: node.id } : {}) });
+      });
+      label.appendChild(sel);
+      return label;
+    }
+    case "checkbox":
+    case "switch": {
+      const isSwitch = type === "switch";
+      const row = gel("label", "g-toggle" + (isSwitch ? " g-switch" : ""));
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = node.checked === true;
+      if (isSwitch) input.className = "g-switch-input";
+      input.addEventListener("change", () => {
+        if (node.action) ctx.action(node.action, isSwitch ? { type: "switch", checked: input.checked } : { type: "checkbox", checked: input.checked });
+      });
+      row.appendChild(input);
+      row.appendChild(gel("span", "g-toggle-label", node.label));
+      return row;
+    }
+    case "slider": {
+      const row = gel("label", "g-toggle g-slider-row");
+      if (node.label) row.appendChild(gel("span", "g-field-label", node.label));
+      const input = document.createElement("input");
+      input.type = "range";
+      input.className = "g-slider";
+      input.min = gnum(node.min, 0);
+      input.max = gnum(node.max, 100);
+      input.step = gnum(node.step, 1);
+      input.value = gnum(node.value, gnum(node.min, 0));
+      const readout = gel("span", "g-slider-value", String(input.value));
+      if (node.id) ctx.fields[node.id] = String(input.value);
+      input.addEventListener("input", () => {
+        readout.textContent = String(input.value);
+        if (node.id) ctx.fields[node.id] = String(input.value);
+      });
+      input.addEventListener("change", () => {
+        if (node.action) ctx.action(node.action, { type: "slider", value: Number(input.value), ...(node.id ? { id: node.id } : {}) });
+      });
+      row.appendChild(input);
+      row.appendChild(readout);
+      return row;
+    }
+    case "radio": {
+      const group = node.group || node.label || "quiz";
+      const box = gel("div", "g-radio");
+      if (node.label) box.appendChild(gel("div", "g-field-label", node.label));
+      const options = (Array.isArray(node.options) ? node.options : []).slice(0, GENUI.maxOptions);
+      const name = "g-radio-" + Math.random().toString(36).slice(2);
+      options.forEach((opt, i) => {
+        const row = gel("label", "g-radio-row");
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = name;
+        input.value = gstr(opt, 200);
+        if (i === gnum(node.selected, -1)) { input.checked = true; ctx.answers[group] = gstr(opt, 200); }
+        input.addEventListener("change", () => { ctx.answers[group] = gstr(opt, 200); });
+        row.appendChild(input);
+        row.appendChild(gel("span", null, opt));
+        box.appendChild(row);
+      });
+      if (node.answer !== undefined || node.explanation) {
+        ctx.meta[group] = { label: node.label || group, options, answer: node.answer, explanation: node.explanation };
+      }
+      return box;
+    }
+    case "submit": {
+      const box = gel("div", "g-submit");
+      const groups = Array.isArray(node.groups) && node.groups.length
+        ? node.groups
+        : Object.keys(ctx.meta);
+      const gradable = groups.filter((g) => ctx.meta[g] && ctx.meta[g].answer !== undefined);
+      const answered = groups.filter((g) => ctx.answers[g] !== undefined).length;
+      const result = gel("div", "g-grade");
+      const btn = gel("button", "g-btn g-primary g-submit-btn", node.label || "交卷");
+      btn.type = "button";
+      btn.disabled = groups.length > 0 && answered < groups.length;
+      const hint = gel("span", "g-submit-hint", `已答 ${answered}/${groups.length}`);
+      const doGrade = () => {
+        if (!gradable.length) return false;
+        let right = 0;
+        result.innerHTML = "";
+        groups.forEach((g) => {
+          const meta = ctx.meta[g];
+          if (!meta || meta.answer === undefined || ctx.answers[g] === undefined) return;
+          const mine = ctx.answers[g];
+          const expected = typeof meta.answer === "number" ? meta.options[meta.answer] : meta.answer;
+          const ok = String(mine) === String(expected);
+          if (ok) right += 1;
+          const row = gel("div", "g-grade-item " + (ok ? "ok" : "no"));
+          row.appendChild(gel("span", "g-grade-q", meta.label));
+          row.appendChild(gel("span", "g-grade-tag", ok ? "✓" : "✗"));
+          row.appendChild(gel("span", "g-grade-ans", `你的答案：${mine}`));
+          if (!ok) row.appendChild(gel("span", "g-grade-right", `正确答案：${expected}`));
+          if (meta.explanation) row.appendChild(gel("span", "g-grade-exp", meta.explanation));
+          result.appendChild(row);
+        });
+        const score = gel("div", "g-grade-score", `${right} / ${gradable.length}`);
+        result.insertBefore(score, result.firstChild);
+        result.appendChild(gel("div", "g-grade-note", "已判分，可点「重新作答」"));
+        const again = gel("button", "g-btn g-ghost g-small", "重新作答");
+        again.type = "button";
+        again.addEventListener("click", () => {
+          result.innerHTML = "";
+          box.querySelectorAll(".g-grade-item").forEach((n) => n.remove());
+          ctx.answers = {};
+          if (node.resetAction) ctx.action(node.resetAction, { type: "submit-reset", groups });
+          else box.querySelectorAll('.g-submit-btn').forEach((b) => { b.disabled = groups.length > 0; });
+        });
+        result.appendChild(again);
+        box.querySelectorAll(".g-submit-btn").forEach((b) => { b.disabled = true; });
+        return true;
+      };
+      btn.addEventListener("click", () => {
+        if (doGrade()) return;
+        if (node.action) ctx.action(node.action, { type: "submit", answers: { ...ctx.answers }, fields: { ...ctx.fields }, total: groups.length, answered });
+      });
+      box.appendChild(btn);
+      if (groups.length) box.appendChild(hint);
+      box.appendChild(result);
+      return box;
+    }
+    case "quiz": {
+      const box = gel("div", "g-quiz");
+      box.appendChild(gel("div", "g-quiz-q", node.question));
+      const feedback = gel("div", "g-quiz-feedback");
+      const options = (Array.isArray(node.options) ? node.options : []).slice(0, GENUI.maxOptions);
+      options.forEach((opt) => {
+        const label = gstr(opt && opt.label, 500);
+        const btn = gel("button", "g-quiz-opt", label);
+        btn.type = "button";
+        btn.addEventListener("click", () => {
+          if (box.dataset.done === "1") return;
+          box.dataset.done = "1";
+          const ok = Boolean(opt && opt.correct);
+          btn.classList.add(ok ? "ok" : "no");
+          options.forEach((other) => { if (other && other.correct) [...box.querySelectorAll(".g-quiz-opt")].find((b) => b.textContent === gstr(other.label, 500))?.classList.add("ok"); });
+          feedback.className = "g-quiz-feedback " + (ok ? "ok" : "no");
+          feedback.textContent = (ok ? "✓ 正确" : "✗ 不对") + ((opt && opt.feedback) ? "：" + gstr(opt.feedback, 500) : "");
+          if (node.explanation) feedback.textContent += " · " + gstr(node.explanation, 500);
+          const again = gel("button", "g-btn g-ghost g-small", "重试");
+          again.type = "button";
+          again.addEventListener("click", () => {
+            box.dataset.done = "0";
+            box.querySelectorAll(".g-quiz-opt").forEach((b) => b.classList.remove("ok", "no"));
+            feedback.className = "g-quiz-feedback";
+            feedback.textContent = "";
+            again.remove();
+          });
+          feedback.appendChild(again);
+          if (node.action) ctx.action(node.action, { type: "quiz", question: gstr(node.question, 300), answer: label, correct: ok });
+        });
+        box.appendChild(btn);
+      });
+      box.appendChild(feedback);
+      return box;
+    }
+    default:
+      return null;
+  }
+}
+
+function renderGenui(spec) {
+  const ctx = { answers: {}, fields: {}, meta: {}, action: genuiDispatch };
+  const root = gel("div", "g-root");
+  root.dataset.genui = "1";
+  if (spec.title) root.appendChild(gel("div", "g-banner", spec.title));
+  const col = gel("div", "g-col");
+  col.style.gap = gnum(spec.gap, 12) + "px";
+  let count = 0;
+  for (const node of spec.items) {
+    if (count++ >= GENUI.maxNodes) break;
+    const rendered = renderGenuiNode(node, ctx, 0);
+    if (rendered) col.appendChild(rendered);
+  }
+  root.appendChild(col);
+  return root;
+}
+
+/** 把已经落地的 dsh-ui 围栏替换成渲染结果（与插件的 DOM 渲染通道同思路）。 */
+function hydrateGenui(root) {
+  if (!root || !root.querySelectorAll) return;
+  for (const pre of root.querySelectorAll("pre.genui-fence")) {
+    const raw = pre.querySelector("code") ? pre.querySelector("code").textContent : "";
+    const spec = parseGenuiSpec(raw);
+    if (!spec) {
+      pre.classList.remove("genui-fence");
+      pre.classList.add("genui-broken");
+      continue;
+    }
+    try {
+      pre.replaceWith(renderGenui(spec));
+    } catch (err) {
+      pre.classList.remove("genui-fence");
+      pre.classList.add("genui-broken");
+      pre.title = "GenUI 渲染失败：" + err.message;
+    }
+  }
+}
+
+/* ==========================================================================
+   对话 DOM
+   ========================================================================== */
+function pushUser(text, files) {
+  $("empty")?.remove();
+  const msg = el("div", "msg user");
+  const bubble = el("div", "bubble");
+  if (text) bubble.appendChild(el("div", null, escapeHtml(text)));
+  if (files && files.length) {
+    const row = el("div", "msg-files");
+    for (const f of files) {
+      row.appendChild(el("span", "msg-file",
+        `<span class="nm">${escapeHtml(f.name)}</span><span class="sz">${fmtBytes(f.size)}</span>`));
+    }
+    bubble.appendChild(row);
+  }
+  msg.appendChild(bubble);
+  wrap.appendChild(msg);
+  autoScroll();
+}
+
+/**
+ * 选/拖进来的文件先挂在输入框上方（`S.staged`），不立即入库。
+ * 只有按下 Enter / 「发送」时才随问题一起进入对话——与 DSH 的附件语义一致。
+ */
+function stageFiles(list) {
+  for (const f of list || []) {
+    const dup = S.staged.some((x) => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified);
+    if (!dup) S.staged.push(f);
+  }
+  renderRail();
+}
+
+function renderRail() {
+  const rail = $("rail");
+  rail.innerHTML = "";
+  rail.hidden = S.staged.length === 0;
+  S.staged.forEach((f, i) => {
+    const chip = el("span", "rail-chip");
+    chip.appendChild(el("span", "nm", escapeHtml(f.name)));
+    chip.appendChild(el("span", "sz", fmtBytes(f.size)));
+    const x = el("button", null, "✕");
+    x.type = "button";
+    x.title = "移除";
+    x.addEventListener("click", () => { S.staged.splice(i, 1); renderRail(); });
+    chip.appendChild(x);
+    rail.appendChild(chip);
+  });
+  updateSendState();
+}
+
+async function uploadStaged(files) {
+  const form = new FormData();
+  for (const f of files) form.append("files", f);
+  const res = await fetch("/api/documents", { method: "POST", body: form });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.detail || res.statusText);
+  }
+  return (await res.json()).documents;
+}
+
+function pushNotice(html) {
+  $("empty")?.remove();
+  const node = el("div", "notice", html);
+  wrap.appendChild(node);
+  autoScroll();
+  return node;
+}
+
+function ingestSummary(docs) {
+  const lines = docs.map((d) => {
+    const bits = [`<span class="${d.ok ? "ok" : "bad"}">${d.ok ? "✅" : "⚠️"}</span>`];
+    bits.push(`<span>${escapeHtml(d.name)}</span>`);
+    if (d.engine) bits.push(`<span class="chip engine">${escapeHtml(d.engine)}</span>`);
+    if (d.chars) bits.push(`<span>${d.chars.toLocaleString()} 字符</span>`);
+    if (d.pages) bits.push(`<span>${d.pages} 页</span>`);
+    if (d.note) bits.push(`<span class="chip warn">${escapeHtml(d.note)}</span>`);
+    return `<div class="line">${bits.join("")}</div>`;
+  });
+  return `<b>已加入资料库（${docs.length} 个文件）</b>${lines.join("")}`;
+}
+
+function openTurn() {
+  $("empty")?.remove();
+  const turn = el("div", "msg");
+  const status = el("div", "run-status");
+  status.innerHTML = '<span class="badge run"><span class="dot"></span><span class="phase">连接中</span></span>'
+    + '<span class="spacer"></span><span class="elapsed">0.0s</span>';
+  turn.appendChild(status);
+  const body = el("div", "turn-body");
+  turn.appendChild(body);
+  wrap.appendChild(turn);
+  S.turnStart = performance.now();
+  clearInterval(S.timer);
+  S.timer = setInterval(() => {
+    const e = status.querySelector(".elapsed");
+    if (e) e.textContent = ((performance.now() - S.turnStart) / 1000).toFixed(1) + "s";
+  }, 100);
+  S.toolCards = new Map();
+  S.stream = { textEl: null, textBuf: "", raf: 0, thinkRow: null, thinkFull: null, thinkBuf: "" };
+  S.turnEl = turn;
+  autoScroll();
+  return body;
+}
+
+function setPhase(turn, text, cls) {
+  const badge = turn.querySelector(".run-status .badge");
+  if (!badge) return;
+  badge.className = "badge " + (cls || "run");
+  badge.innerHTML = '<span class="dot"></span><span class="phase"></span>';
+  badge.querySelector(".phase").textContent = text;
+}
+
+/** 追加一条事件行（思考 / 工具调用），返回行与可折叠内容区。 */
+function addEventRow(body, icon, label, detail, cls) {
+  const row = el("details", "ev" + (cls ? " " + cls : ""));
+  const head = el("summary", "ev-head");
+  head.appendChild(el("span", "ev-ico", icon));
+  head.appendChild(el("span", "ev-label", escapeHtml(label)));
+  head.appendChild(el("span", "ev-detail", escapeHtml(detail || "")));
+  row.appendChild(head);
+  const inner = el("div", "ev-body");
+  row.appendChild(inner);
+  body.appendChild(row);
+  autoScroll();
+  return { row, head, inner };
+}
+
+function addThinking(body, text) {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const { row, inner } = addEventRow(body, "💭", "思考", clipText(flat, 150), "think");
+  inner.appendChild(el("div", "think-full", escapeHtml(text)));
+  return row;
+}
+
+function addText(body, text) {
+  const md = el("div", "md");
+  md.dataset.raw = text;
+  md.innerHTML = renderMarkdown(text);
+  hydrateGenui(md);
+  body.appendChild(md);
+  autoScroll();
+  return md;
+}
+
+/**
+ * token 增量：由 runtime 内的 docqa-stream-forward 插件转发而来（SSE `delta`）。
+ * 正文用 rAF 节流重渲染 Markdown；思考增量就地铺进对应的思考行。
+ * 这些增量是**暂态**的——提交后的整段才是权威文本，见 dropStreamedText。
+ */
+function applyDelta(body, data) {
+  const text = data.text || "";
+  if (!text || !S.stream) return;
+
+  if (data.kind === "reasoning") {
+    if (!S.stream.thinkRow) {
+      const built = addEventRow(body, "💭", "思考", "", "think");
+      const full = el("div", "think-full");
+      built.inner.appendChild(full);
+      S.stream.thinkRow = built.row;
+      S.stream.thinkFull = full;
+      S.stream.thinkBuf = "";
+    }
+    S.stream.thinkBuf += text;
+    S.stream.thinkRow.querySelector(".ev-detail").textContent =
+      clipText(S.stream.thinkBuf.replace(/\s+/g, " ").trim(), 150);
+    S.stream.thinkFull.textContent = S.stream.thinkBuf;
+    if (S.stream.thinkRow.open) autoScroll();
+    return;
+  }
+
+  if (!S.stream.textEl) {
+    const md = el("div", "md streaming");
+    body.appendChild(md);
+    S.stream.textEl = md;
+    S.stream.textBuf = "";
+  }
+  S.stream.textBuf += text;
+  if (!S.stream.raf) {
+    S.stream.raf = requestAnimationFrame(() => {
+      if (!S.stream) return;
+      S.stream.raf = 0;
+      if (!S.stream.textEl) return;
+      S.stream.textEl.innerHTML = renderMarkdown(S.stream.textBuf, { streaming: true });
+      autoScroll();
+    });
+  }
+}
+
+/** 提交版到达（或本轮收尾）时丢掉流式缓冲：权威文本以提交的整段为准。 */
+function dropStreamedText() {
+  if (!S.stream || !S.stream.textEl) return;
+  if (S.stream.raf) cancelAnimationFrame(S.stream.raf);
+  S.stream.textEl.remove();
+  S.stream.textEl = null;
+  S.stream.textBuf = "";
+  S.stream.raf = 0;
+}
+
+function addToolCall(body, data) {
+  const name = data.name || "tool";
+  const parsed = safeParse(data.arguments);
+  const { row, head, inner } = addEventRow(
+    body,
+    TOOL_ICONS[name] || "🔧",
+    TOOL_VERBS[name] || name,
+    toolDetail(name, parsed, data.summary),
+    "tool-row"
+  );
+  const state = el("span", "ev-state", "运行中…");
+  head.appendChild(state);
+
+  const custom = renderToolArgs(name, parsed);
+  if (custom) {
+    inner.appendChild(custom);
+    const raw = el("details", "raw");
+    raw.appendChild(el("summary", null, "原始参数 JSON"));
+    raw.appendChild(el("pre", "code", escapeHtml(prettyJson(data.arguments))));
+    inner.appendChild(raw);
+  } else {
+    inner.appendChild(el("pre", "code", escapeHtml(prettyJson(data.arguments))));
+  }
+
+  row.dataset.started = String(performance.now());
+  S.toolCards.set(data.call_id, row);
+
+  // render_ui 是围栏之外的第二条通道（交付物型界面走工具行卡片）；如果模型
+  // 选了它，这里直接把 spec 渲染出来，而不是只留一行 JSON。
+  if (name === "render_ui" && parsed && isGenuiRoot(parsed.spec)) {
+    try {
+      inner.appendChild(renderGenui(parsed.spec));
+      row.open = true;
+    } catch { /* 渲染失败就保留参数 JSON */ }
+  }
+  autoScroll();
+}
+
+function settleTool(data) {
+  const row = S.toolCards.get(data.call_id);
+  if (!row) return;
+  const started = Number(row.dataset.started || performance.now());
+  row.classList.add(data.ok === false ? "fail" : "done");
+  const state = row.querySelector(".ev-state");
+  if (state) state.textContent = (data.ok === false ? "失败" : "完成") + " · " + fmtMs(Math.round(performance.now() - started));
+  const inner = row.querySelector(".ev-body");
+  inner.appendChild(el("h4", null, "结果"));
+  inner.appendChild(el("pre", "code", escapeHtml(data.preview || "（空结果）")));
+  if (data.ok === false) row.open = true;   // 失败自动展开，成功保持收起
+  autoScroll();
+}
+
+function finishTurn(body, turnEl, answer, meta) {
+  dropStreamedText();   // 还没被提交版替换掉的增量，到此作废
+  const blocks = [...body.querySelectorAll(":scope > .md[data-raw]")];
+  const prev = blocks[blocks.length - 1];
+  if (answer && prev && prev.dataset.raw.trim() === answer.trim()) {
+    prev.classList.add("answer");
+  } else if (answer) {
+    body.appendChild(el("div", "answer-tag", "回答"));
+    const md = el("div", "md answer");
+    md.dataset.raw = answer;
+    md.innerHTML = renderMarkdown(answer);
+    hydrateGenui(md);
+    body.appendChild(md);
+  }
+  clearInterval(S.timer);
+  const elapsed = Math.round(performance.now() - S.turnStart);
+  // 非 completed 的结束原因不是成功：别把它画成绿色"完成"（例如 finish_reason=error）。
+  const reason = meta && meta.finish_reason ? meta.finish_reason : "completed";
+  setPhase(turnEl, reason === "completed" ? "完成" : reason, reason === "completed" ? "ok" : "bad");
+  const e = turnEl.querySelector(".elapsed");
+  if (e) e.textContent = fmtMs(elapsed);
+  autoScroll();
+}
+
+function showError(body, turnEl, message) {
+  clearInterval(S.timer);
+  body.appendChild(el("div", "err-box", escapeHtml(message)));
+  setPhase(turnEl, "失败", "bad");
+  autoScroll();
+}
+
+/* ==========================================================================
+   SSE 事件处理
+   ========================================================================== */
+function handleEvent(kind, data, turnEl) {
+  if (typeof data.seq === "number") {
+    if (data.seq <= S.lastSeq) return;   // 重连补发时去重
+    S.lastSeq = data.seq;
+  }
+  const body = turnEl.querySelector(".turn-body");
+  switch (kind) {
+    case "status":
+      // 图片没有 Markdown 全文，走"随问题内联"的视觉通道；阶段提示里说清楚送了几张。
+      if (data.status === "running") {
+        setPhase(turnEl, data.note ? `思考中 · ${data.note}` : "思考中", "run");
+      }
+      break;
+    case "turn_start":
+      break;
+    case "step_start":
+      setPhase(turnEl, "思考中", "run");
+      break;
+    case "step_end":
+      break;
+    case "thinking":
+      if (S.stream && S.stream.thinkRow) {
+        // 增量已经把这行铺好了：用提交后的整段覆盖，不再追加重复的一行
+        S.stream.thinkRow.querySelector(".ev-detail").textContent =
+          clipText(String(data.text || "").replace(/\s+/g, " ").trim(), 150);
+        if (S.stream.thinkFull) S.stream.thinkFull.textContent = data.text || "";
+        S.stream.thinkRow = null;
+        S.stream.thinkFull = null;
+        S.stream.thinkBuf = "";
+      } else {
+        addThinking(body, data.text);
+      }
+      break;
+    case "text":
+      dropStreamedText();
+      addText(body, data.text);
+      break;
+    case "tool_call":
+      addToolCall(body, data);
+      setPhase(turnEl, "调用 " + (data.name || "tool"), "run");
+      break;
+    case "tool_result":
+      settleTool(data);
+      setPhase(turnEl, "思考中", "run");
+      break;
+    case "turn_end":
+      if (data.reason && data.reason !== "completed") {
+        setPhase(turnEl, data.reason, "bad");
+      }
+      break;
+    case "done":
+      finishTurn(body, turnEl, data.answer || "", data);
+      break;
+    case "error":
+      showError(body, turnEl, data.message || "未知错误");
+      break;
+  }
+}
+
+function streamJob(jobId) {
+  return new Promise((resolve) => {
+    const es = new EventSource(`/api/chat/${jobId}/events`);
+    S.es = es;
+    $("conn").textContent = "SSE 已连接";
+
+    const handler = (kind) => (ev) => {
+      let data = {};
+      try { data = JSON.parse(ev.data); } catch { /* keepalive / end */ }
+      handleEvent(kind, data, S.turnEl);
+    };
+    const kinds = ["status", "turn_start", "step_start", "step_end", "thinking",
+                   "text", "tool_call", "tool_result", "turn_end", "done", "error"];
+    for (const k of kinds) es.addEventListener(k, handler(k));
+
+    // token 增量走独立回调：它是暂态事件、没有 durable seq，不能参与上面的去重。
+    es.addEventListener("delta", (ev) => {
+      let data = {};
+      try { data = JSON.parse(ev.data); } catch { return; }
+      const body = S.turnEl && S.turnEl.querySelector(".turn-body");
+      if (body) applyDelta(body, data);
+    });
+
+    es.addEventListener("end", () => {
+      es.close();
+      S.es = null;
+      resolve();
+    });
+    es.onerror = () => {
+      // EventSource 会自带 Last-Event-ID 重连，服务端按 seq 补发；
+      // 只有流已经结束时才真正收尾。
+      fetch(`/api/chat/${jobId}`)
+        .then((r) => r.json())
+        .then((snap) => {
+          if (snap.finished) {
+            es.close();
+            S.es = null;
+            resolve();
+          }
+        })
+        .catch(() => {});
+    };
+  });
+}
+
+/* ==========================================================================
+   发送
+   ========================================================================== */
+function updateSendState() {
+  const hasText = $("q").value.trim().length > 0;
+  const hasStaged = S.staged.length > 0;
+  // 有暂存文件时即使资料库还空着也能发（这一发就是入库）
+  $("send").disabled = S.busy || (!hasText && !hasStaged) || (!S.documents.length && !hasStaged);
+  $("send").textContent = S.busy ? "执行中…" : "发送";
+}
+
+async function send() {
+  const q = $("q").value.trim();
+  const files = S.staged.slice();
+  if ((!q && !files.length) || S.busy) return;
+
+  $("q").value = "";
+  $("q").style.height = "auto";
+  S.staged = [];
+  renderRail();
+  pushUser(q, files);
+
+  S.busy = true;
+  updateSendState();
+  // 图片没有 Markdown 全文，只能作为图像块随问题一起送给模型；这里记下本轮
+  // 新入库的图片 slug，随 /api/chat 一起提交（引擎另外还会带上资料库里已有的图片）。
+  const attached = [];
+  try {
+    // 1) 暂存文件在这一刻才入库，并把转换结果作为一条系统提示留在对话流里
+    if (files.length) {
+      const notice = pushNotice(`正在转换 ${files.length} 个文件…`);
+      try {
+        const docs = await uploadStaged(files);
+        for (const d of docs) if (d.image && d.slug) attached.push(d.slug);
+        notice.innerHTML = ingestSummary(docs) + (attached.length
+          ? `<div class="line">🖼 本轮 ${attached.length} 张图片会随问题一起送给模型</div>`
+          : "");
+        await loadState();
+      } catch (err) {
+        notice.innerHTML = `<span class="bad">上传失败：${escapeHtml(err.message)}</span>`;
+        return;
+      }
+    }
+    // 2) 只挂文件不提问：入库即完成，等下一句
+    if (!q) return;
+    if (!S.documents.length) {
+      const body = openTurn();
+      showError(body, S.turnEl, "资料库为空，请先上传文档。");
+      return;
+    }
+
+    const body = openTurn();
+    S.lastSeq = 0;
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: q, images: attached }),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail.detail || res.statusText);
+      }
+      const { job_id } = await res.json();
+      await streamJob(job_id);
+    } catch (err) {
+      showError(body, S.turnEl, err.message);
+    }
+  } finally {
+    S.busy = false;
+    $("conn").textContent = "";
+    updateSendState();
+    // 首轮可能轮换过 session（新 runtime 无法沿用已存在的 id），刷新侧栏
+    loadState().catch(() => {});
+  }
+}
+
+/* ==========================================================================
+   绑定
+   ========================================================================== */
+/* --------------------------------------------------------------- 上传入口
+   ＋ → 功能菜单 → 文件 → 本地文件选择器；把文件拖到窗口任意位置走同一条通路。 */
+const addBtn = $("add");
+const addMenu = $("add-menu");
+
+function setMenu(open) {
+  addMenu.hidden = !open;
+  addBtn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+addBtn.addEventListener("click", (e) => { e.stopPropagation(); setMenu(addMenu.hidden); });
+addMenu.addEventListener("click", (e) => e.stopPropagation());
+$("menu-file").addEventListener("click", () => { setMenu(false); $("file").click(); });
+$("menu-new-session").addEventListener("click", () => { setMenu(false); startNewSession(); });
+document.addEventListener("click", () => setMenu(false));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") setMenu(false); });
+
+$("file").addEventListener("change", (e) => { stageFiles(e.target.files); e.target.value = ""; });
+
+/* 整窗拖放：用计数器抵消子元素之间反复触发的 dragenter/dragleave。 */
+const veil = $("veil");
+let dragDepth = 0;
+function dragging(e) {
+  return Boolean(e.dataTransfer) && Array.from(e.dataTransfer.types || []).includes("Files");
+}
+window.addEventListener("dragenter", (e) => {
+  if (!dragging(e)) return;
+  e.preventDefault(); dragDepth += 1; veil.hidden = false;
+});
+window.addEventListener("dragover", (e) => { if (dragging(e)) e.preventDefault(); });
+window.addEventListener("dragleave", () => {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) veil.hidden = true;
+});
+window.addEventListener("drop", (e) => {
+  e.preventDefault(); dragDepth = 0; veil.hidden = true;
+  if (e.dataTransfer && e.dataTransfer.files.length) stageFiles(e.dataTransfer.files);
+});
+
+$("send").addEventListener("click", send);
+$("q").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+$("q").addEventListener("input", (e) => {
+  e.target.style.height = "auto";
+  e.target.style.height = Math.min(e.target.scrollHeight, 200) + "px";
+  updateSendState();
+});
+
+async function startNewSession() {
+  await fetch("/api/session", { method: "POST" });
+  await loadState();
+  wrap.querySelectorAll(".msg").forEach((n) => n.remove());
+  if (!wrap.querySelector(".empty")) {
+    wrap.appendChild(el("div", "empty", "<b>新的对话</b>文档还在，可以继续提问。"));
+  }
+}
+
+$("new-session").addEventListener("click", () => { startNewSession(); });
+
+$("clear-docs").addEventListener("click", async () => {
+  if (!confirm("清空资料库里的全部文档？（会话历史保留）")) return;
+  await fetch("/api/documents", { method: "DELETE" });
+  await loadState();
+});
+
+$("thread").addEventListener("scroll", () => { S.scrollLock = false; });
+
+loadState();
+loadEngines();
+</script>
+</body>
+</html>

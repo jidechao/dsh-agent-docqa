@@ -1,0 +1,12 @@
+# docqa 的 genui 覆写层：把 dsh-genui 的**宿主半边**挂进 sdk profile。
+#
+# 只挂宿主半边（lib/index.js vendored 成 ./genui/index.js），它做两件事：
+#   1. 往系统提示词里注入 ```dsh-ui 围栏的组件词汇表（GENUI_SECTION_TEXT）；
+#   2. 注册 render_ui / validate_dsh_ui 两个工具，后者能校验并自动修复围栏 JSON。
+# 浏览器半边（React 渲染器）不在这里——docqa 用自己的 vanilla 渲染器。
+#
+# 该文件只 import Node 内置模块，自包含，不依赖任何 @deepseek-ai/* 包。
+
+- insert:
+    - id: genui
+      name: './genui/index.js'
